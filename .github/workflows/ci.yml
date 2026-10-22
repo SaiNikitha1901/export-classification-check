@@ -1,0 +1,40 @@
+name: ci
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install -e ./shared pytest
+      - name: Contract tests (and published schemas up to date)
+        run: pytest -q shared/tests
+
+  config:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compose file is valid
+        run: docker compose config -q
+      - name: No secrets, endpoints or model ids in the repo (D4)
+        run: bash scripts/check_no_secrets.sh
+
+  integration:
+    runs-on: ubuntu-latest
+    needs: [unit, config]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start the stack from a clean clone
+        run: docker compose up -d --build --wait --wait-timeout 300
+      - name: API integration tests
+        run: docker compose run --rm api python -m pytest -q tests
+      - name: Logs on failure
+        if: failure()
+        run: docker compose logs --tail 200
+      - run: docker compose down -v
+        if: always()

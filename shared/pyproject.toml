@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ecs-shared"
+version = "0.1.0"
+description = "Shared data contracts and logging helpers for the Export Classification Check service"
+requires-python = ">=3.11"
+dependencies = ["pydantic>=2.7,<3"]
+
+[tool.setuptools]
+packages = ["contracts", "ecs_common"]
+
+[tool.setuptools.package-data]
+contracts = ["*.schema.json"]

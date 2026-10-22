@@ -1,0 +1,304 @@
+{
+  "$defs": {
+    "Citation": {
+      "additionalProperties": false,
+      "properties": {
+        "clause_id": {
+          "title": "Clause Id",
+          "type": "string"
+        },
+        "passage_id": {
+          "title": "Passage Id",
+          "type": "string"
+        },
+        "quote": {
+          "minLength": 1,
+          "title": "Quote",
+          "type": "string"
+        }
+      },
+      "required": [
+        "clause_id",
+        "passage_id",
+        "quote"
+      ],
+      "title": "Citation",
+      "type": "object"
+    },
+    "Escalation": {
+      "additionalProperties": false,
+      "properties": {
+        "escalated": {
+          "default": false,
+          "title": "Escalated",
+          "type": "boolean"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason"
+        },
+        "to": {
+          "default": "licensed customs broker / specialist",
+          "title": "To",
+          "type": "string"
+        }
+      },
+      "title": "Escalation",
+      "type": "object"
+    },
+    "ExportPolicy": {
+      "additionalProperties": false,
+      "properties": {
+        "clause_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Clause Id"
+        },
+        "conditions": {
+          "default": "",
+          "title": "Conditions",
+          "type": "string"
+        },
+        "policy": {
+          "default": "unknown",
+          "enum": [
+            "Free",
+            "Restricted",
+            "Prohibited",
+            "STE",
+            "unknown"
+          ],
+          "title": "Policy",
+          "type": "string"
+        }
+      },
+      "title": "ExportPolicy",
+      "type": "object"
+    },
+    "Guardrails": {
+      "additionalProperties": false,
+      "properties": {
+        "injection_detected": {
+          "default": false,
+          "title": "Injection Detected",
+          "type": "boolean"
+        },
+        "output_filtered": {
+          "default": false,
+          "title": "Output Filtered",
+          "type": "boolean"
+        },
+        "toxicity_flag": {
+          "default": false,
+          "title": "Toxicity Flag",
+          "type": "boolean"
+        }
+      },
+      "title": "Guardrails",
+      "type": "object"
+    },
+    "Usage": {
+      "additionalProperties": false,
+      "properties": {
+        "completion_tokens": {
+          "default": 0,
+          "title": "Completion Tokens",
+          "type": "integer"
+        },
+        "cost_usd": {
+          "default": 0.0,
+          "title": "Cost Usd",
+          "type": "number"
+        },
+        "latency_ms": {
+          "default": 0,
+          "title": "Latency Ms",
+          "type": "integer"
+        },
+        "prompt_tokens": {
+          "default": 0,
+          "title": "Prompt Tokens",
+          "type": "integer"
+        },
+        "steps": {
+          "default": 0,
+          "title": "Steps",
+          "type": "integer"
+        },
+        "tool_calls": {
+          "default": 0,
+          "title": "Tool Calls",
+          "type": "integer"
+        }
+      },
+      "title": "Usage",
+      "type": "object"
+    },
+    "Verification": {
+      "additionalProperties": false,
+      "properties": {
+        "attempts": {
+          "default": 0,
+          "title": "Attempts",
+          "type": "integer"
+        },
+        "passed": {
+          "default": false,
+          "title": "Passed",
+          "type": "boolean"
+        },
+        "unsupported_claims": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Unsupported Claims",
+          "type": "array"
+        }
+      },
+      "title": "Verification",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "article": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Article"
+    },
+    "citations": {
+      "items": {
+        "$ref": "#/$defs/Citation"
+      },
+      "title": "Citations",
+      "type": "array"
+    },
+    "disclaimer": {
+      "default": "Proposed classification only. Not a filed declaration. A licensed customs broker decides.",
+      "title": "Disclaimer",
+      "type": "string"
+    },
+    "escalation": {
+      "$ref": "#/$defs/Escalation"
+    },
+    "export_policy": {
+      "$ref": "#/$defs/ExportPolicy"
+    },
+    "gri_applied": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Gri Applied",
+      "type": "array"
+    },
+    "guardrails": {
+      "$ref": "#/$defs/Guardrails"
+    },
+    "heading": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Heading"
+    },
+    "materials": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Materials",
+      "type": "array"
+    },
+    "prompt_version": {
+      "title": "Prompt Version",
+      "type": "string"
+    },
+    "proposed_hs_code": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Proposed Hs Code"
+    },
+    "reasoning_summary": {
+      "default": "",
+      "title": "Reasoning Summary",
+      "type": "string"
+    },
+    "route": {
+      "enum": [
+        "clear-for-filing",
+        "seek-product-clarification",
+        "specialist-classification-review"
+      ],
+      "title": "Route",
+      "type": "string"
+    },
+    "route_basis": {
+      "title": "Route Basis",
+      "type": "string"
+    },
+    "run_id": {
+      "title": "Run Id",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "queued",
+        "running",
+        "completed",
+        "escalated",
+        "degraded",
+        "failed"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "usage": {
+      "$ref": "#/$defs/Usage"
+    },
+    "verification": {
+      "$ref": "#/$defs/Verification"
+    }
+  },
+  "required": [
+    "run_id",
+    "status",
+    "route",
+    "route_basis",
+    "prompt_version"
+  ],
+  "title": "Result",
+  "type": "object"
+}

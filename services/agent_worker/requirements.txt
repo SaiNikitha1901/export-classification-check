@@ -1,0 +1,5 @@
+# PLACEHOLDER requirements - Member 3 replaces with the real agent stack (LangGraph etc.)
+rq==2.0.0
+redis==5.2.1
+psycopg[binary]==3.2.3
+prometheus-client==0.21.1

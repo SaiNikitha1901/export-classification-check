@@ -1,0 +1,153 @@
+{
+  "$defs": {
+    "Material": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "maxLength": 60,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "share_pct": {
+          "maximum": 100,
+          "minimum": 0,
+          "title": "Share Pct",
+          "type": "number"
+        }
+      },
+      "required": [
+        "name",
+        "share_pct"
+      ],
+      "title": "Material",
+      "type": "object"
+    },
+    "Unit": {
+      "enum": [
+        "PCS",
+        "KG",
+        "SET",
+        "PAIR",
+        "DOZ"
+      ],
+      "title": "Unit",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "A product to classify. Unknown fields are rejected.",
+  "properties": {
+    "callback_url": {
+      "anyOf": [
+        {
+          "format": "uri",
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Callback Url"
+    },
+    "client_ref": {
+      "anyOf": [
+        {
+          "maxLength": 64,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Client Ref"
+    },
+    "declared_hs_code": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Declared Hs Code"
+    },
+    "destination_country": {
+      "maxLength": 2,
+      "minLength": 2,
+      "title": "Destination Country",
+      "type": "string"
+    },
+    "intended_use": {
+      "anyOf": [
+        {
+          "maxLength": 300,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Intended Use"
+    },
+    "materials": {
+      "anyOf": [
+        {
+          "items": {
+            "$ref": "#/$defs/Material"
+          },
+          "maxItems": 10,
+          "minItems": 1,
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Materials"
+    },
+    "product_description": {
+      "maxLength": 2000,
+      "minLength": 10,
+      "title": "Product Description",
+      "type": "string"
+    },
+    "quantity": {
+      "anyOf": [
+        {
+          "exclusiveMinimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Quantity"
+    },
+    "unit": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Unit"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    }
+  },
+  "required": [
+    "product_description",
+    "destination_country"
+  ],
+  "title": "ProductRequest",
+  "type": "object"
+}

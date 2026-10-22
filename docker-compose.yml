@@ -1,0 +1,135 @@
+# One command from a clean clone: docker compose up --build
+# Owner: Member 1. Teammates send changes to their own service blocks via PR.
+name: ecs
+
+x-env: &env
+  env_file:
+    - path: .env.example
+      required: true
+    - path: .env
+      required: false
+
+x-logging: &logging
+  logging:
+    driver: json-file
+    options: { max-size: "10m", max-file: "3" }
+
+services:
+  postgres:
+    <<: [*env, *logging]
+    image: postgres:16.6-alpine
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    <<: *logging
+    image: redis:7.4.1-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # ---- Member 2: retrieval service (placeholder until feature/retrieval merges)
+  retriever:
+    <<: [*env, *logging]
+    build: { context: ., dockerfile: services/retriever/Dockerfile }
+    environment: { SERVICE_NAME: retriever }
+    ports: ["${RETRIEVER_HOST_PORT:-8001}:8001"]
+    volumes:
+      - index_data:/data/index
+    depends_on:
+      redis: { condition: service_healthy }
+
+  # ---- Member 3: LLM stub for load tests (placeholder until feature/agents merges)
+  llm-stub:
+    <<: [*env, *logging]
+    build: { context: ., dockerfile: services/llm_stub/Dockerfile }
+    environment: { SERVICE_NAME: llm-stub }
+    ports: ["${LLM_STUB_HOST_PORT:-8002}:8002"]
+
+  # ---- Member 3: agent workers. No container_name / host ports so --scale agent-worker=N works.
+  agent-worker:
+    <<: [*env, *logging]
+    build: { context: ., dockerfile: services/agent_worker/Dockerfile }
+    environment: { SERVICE_NAME: agent-worker }
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      retriever: { condition: service_healthy }
+      llm-stub: { condition: service_healthy }
+
+  # ---- Member 1: public API + web client (/ui)
+  api:
+    <<: [*env, *logging]
+    build: { context: ., dockerfile: services/api/Dockerfile }
+    environment: { SERVICE_NAME: api }
+    ports: ["${API_HOST_PORT:-8000}:8000"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      retriever: { condition: service_started }
+
+  # ---- Observability
+  jaeger:
+    <<: [*env, *logging]
+    image: jaegertracing/all-in-one:1.62.0
+    ports: ["${JAEGER_HOST_PORT:-16686}:16686"]
+
+  # Per-container CPU/memory/uptime via the Docker socket (cAdvisor cannot see containers on Docker Desktop).
+  docker-exporter:
+    <<: *logging
+    build: { context: ., dockerfile: ops/docker_exporter/Dockerfile }
+    environment: { COMPOSE_PROJECT: ecs }
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
+  prometheus:
+    <<: *logging
+    image: prom/prometheus:v2.55.1
+    command: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.retention.time=7d"]
+    volumes:
+      - ./ops/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - promdata:/prometheus
+    ports: ["${PROMETHEUS_HOST_PORT:-9090}:9090"]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:9090/-/ready"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  grafana:
+    <<: [*env, *logging]
+    image: grafana/grafana:11.3.1
+    environment:
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/service-health.json
+    volumes:
+      - ./ops/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./ops/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports: ["${GRAFANA_HOST_PORT:-3000}:3000"]
+    depends_on:
+      prometheus: { condition: service_healthy }
+
+  # ---- Load testing (D6): docker compose --profile loadtest run --rm locust ...
+  locust:
+    <<: [*env, *logging]
+    profiles: ["loadtest"]
+    image: locustio/locust:2.32.4
+    working_dir: /mnt/locust
+    volumes:
+      - ./loadtest:/mnt/locust
+    ports: ["${LOCUST_HOST_PORT:-8089}:8089"]
+    depends_on:
+      api: { condition: service_healthy }
+
+volumes:
+  pgdata:
+  promdata:
+  index_data:
