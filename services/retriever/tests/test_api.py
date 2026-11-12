@@ -11,6 +11,15 @@ def test_clause_9617(client):
                       "doc_version", "page", "score"}
 
 
+def test_clause_with_sub_rule_letter(client):
+    # Regression: upper-casing the whole id turned GRI-3(b) into GRI-3(B) and returned 404.
+    for cid, want in (("GRI-3(b)", "GRI-3(b)"), ("gri-3(b)", "GRI-3(b)"), ("GRI-2(a)", "GRI-2(a)")):
+        r = client.get(f"/clause/{cid}")
+        assert r.status_code == 200, cid
+        assert r.json()["clause_id"] == want
+        assert r.json()["passages"][0]["clause_id"] == want
+
+
 def test_clause_prefix_and_404(client):
     assert {p["clause_id"] for p in client.get("/clause/GRI-3").json()["passages"]} == {"GRI-3(a)", "GRI-3(b)",
                                                                                          "GRI-3(c)"}

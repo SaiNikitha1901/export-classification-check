@@ -11,6 +11,8 @@ Every endpoint reads and echoes X-Correlation-ID (A.9).
 from __future__ import annotations
 
 import logging
+import os
+import sys
 import time
 from typing import Literal, Optional
 
@@ -73,6 +75,17 @@ def _load_index() -> None:
         index.ensure_loaded()
     except Exception:
         log.exception("index load failed", extra={"event": "index_load_failed"})
+    if "pytest" not in sys.modules:
+        from retriever import live_scoring
+
+        live_scoring.start(index)
+
+
+# Evaluation switch for the L3 before/after experiment: force every search to one mode (e.g. "dense"),
+# whatever the agent asked for. Unset in normal operation. Reported in /index/info and logged per search.
+FORCE_SEARCH_MODE = os.getenv("FORCE_SEARCH_MODE") or None
+if FORCE_SEARCH_MODE not in (None, "dense", "keyword", "hybrid"):
+    raise SystemExit(f"FORCE_SEARCH_MODE must be dense, keyword or hybrid, not {FORCE_SEARCH_MODE!r}")
 
 
 @app.middleware("http")
@@ -131,12 +144,14 @@ def prometheus_metrics():
 
 @app.get("/index/info")
 def index_info():
-    return index.info()
+    return {**index.info(), "search_mode_override": FORCE_SEARCH_MODE}
 
 
 @app.post("/search")
 def search(body: SearchRequest):
     _require_index()
+    if FORCE_SEARCH_MODE and body.mode != FORCE_SEARCH_MODE:
+        body = body.model_copy(update={"mode": FORCE_SEARCH_MODE})
     with tracer.start_as_current_span("retriever.search") as span:
         span.set_attribute("retrieval.mode", body.mode)
         span.set_attribute("retrieval.k", body.k)
@@ -155,7 +170,7 @@ def clause(clause_id: str):
     passages = index.clause(clause_id)
     if not passages:
         raise HTTPException(404, f"clause {clause_id} not found in the corpus")
-    return {"clause_id": clause_id.upper(), "passages": passages}
+    return {"clause_id": index.normalise_clause_id(clause_id), "passages": passages}
 
 
 @app.get("/notes/applicable/{clause_id}")

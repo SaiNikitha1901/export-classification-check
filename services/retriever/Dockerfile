@@ -13,6 +13,8 @@ RUN pip install /opt/shared
 COPY corpus ./corpus
 COPY services/retriever/retriever ./retriever
 COPY services/retriever/tests ./tests
+# Evaluation code: the batch runner runs from this image, and the live scorer imports eval/metrics.py.
+COPY eval ./eval
 COPY services/retriever/entrypoint.sh ./entrypoint.sh
 # Windows checkouts (git autocrlf) give the script CRLF endings, which /bin/sh cannot run.
 RUN sed -i 's/\r$//' ./entrypoint.sh && chmod +x ./entrypoint.sh

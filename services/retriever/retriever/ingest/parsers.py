@@ -7,7 +7,7 @@ One chunk per legal unit, each with its A.7 clause ID:
   4-digit headings (+ their lines) HDG-7323, HDG-9617
   8-digit tariff items             TL-96170011
   DGFT Schedule 2 rows             EXP-96020030
-  DGFT General Notes               EXP-GN-1 … (contract change #7)
+  DGFT General Notes               EXP-GN-1 … (contract change #13)
 
 A heading chunk's text starts with the heading's own wording, so a search for the article's name
 ("vacuum flask") hits HDG-9617 directly instead of the material-based Chapter 73 headings.

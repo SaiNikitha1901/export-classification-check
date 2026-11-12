@@ -195,9 +195,15 @@ class Index:
 
     # ------------------------------------------------------------ lookups by metadata
 
+    @staticmethod
+    def normalise_clause_id(clause_id: str) -> str:
+        """Upper-case the ID but keep sub-rule letters lower case: "gri-3(B)" -> "GRI-3(b)"."""
+        cid = clause_id.strip().upper()
+        return re.sub(r"\(([A-Z]{1,2})\)", lambda m: f"({m.group(1).lower()})", cid)
+
     def clause(self, clause_id: str) -> list[dict]:
         d = self.ensure_loaded()
-        cid = clause_id.strip().upper()
+        cid = self.normalise_clause_id(clause_id)
         hits = d.by_clause.get(cid)
         if not hits:
             # "GRI-3" returns GRI-3(a), GRI-3(b), GRI-3(c).
