@@ -142,9 +142,11 @@ Reference answer:
 
 If the faculty prefers the bare sentence to produce `clear-for-filing`, the only defensible way is to assume a capacity, and we would rather not. **[CONFIRM]**
 
+Member 3 reached the same conclusion independently from the agent side (contract change #12). Their variant uses "Capacity 1 litre.", which gives `clear-for-filing` with **96170012** (> 0.75 l). The evaluation set (`eval/scenarios.jsonl`) contains all three: S01 (no capacity → seek clarification), S02 (500 ml → 96170011) and S03 (1 litre → 96170012).
+
 ## 5. Open points for faculty confirmation
 
 1. **DGFT Schedule 2 version.** The only consolidated chapter-wise file is headed ITC (HS) 2018. Is it acceptable, or should we use another file? (A 2024 harmonised draft exists. We have not yet checked every later amendment notification for Chapters 73 and 96.)
 2. **Reference answer for §4.1:** 4.1-A (seek clarification on capacity) or 4.1-B (500 ml, so 96170011, clear-for-filing)?
-3. **Clause ID for the default export policy.** The shared contract only defines `EXP-<8 digits>` for Schedule 2 rows. 9617 has no row, so its policy comes from General Note 1. We propose the ID `EXP-GN-1`, logged in `docs/contract_changes.md` for the team to agree.
+3. **Clause ID for the default export policy.** The shared contract only defines `EXP-<8 digits>` for Schedule 2 rows. 9617 has no row, so its policy comes from General Note 1. We propose the ID `EXP-GN-1`, logged as change #13 in `docs/contract_changes.md` for the team to agree.
 4. **Section XV notes source.** They are printed at the start of the Chapter 72 PDF. We index only those notes, not Chapter 72.

@@ -26,7 +26,7 @@ Parsers live in `services/retriever/retriever/ingest/parsers.py`; the document r
 | Chapter note | `CH73-NOTE-n`, `CH96-NOTE-n` | 6 | Notes over 1,500 chars are split at their lettered items, keep the note number, and repeat the lead-in |
 | Heading | `HDG-7323`, `HDG-9617` | 45 | Heading wording + its tariff lines |
 | Tariff item | `TL-96170011` | 364 | Its own label + its "Under:" path of parent sub-headings + the heading wording + unit. Duty rates are stripped (spec §13) |
-| Export policy | `EXP-96020030` (Schedule 2 row), `EXP-GN-n` (General Notes) | 4 | Chapter 73 has no Schedule 2 rows; Chapter 96 has one. Everything else falls back to General Note 1 ("Free"). See contract change #7 |
+| Export policy | `EXP-96020030` (Schedule 2 row), `EXP-GN-n` (General Notes) | 4 | Chapter 73 has no Schedule 2 rows; Chapter 96 has one. Everything else falls back to General Note 1 ("Free"). See contract change #13 |
 
 Every chunk carries `clause_id, kind, section, chapter, heading, title, doc_id, doc_version, page`.
 
