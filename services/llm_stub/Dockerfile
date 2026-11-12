@@ -1,4 +1,4 @@
-# PLACEHOLDER LLM stub (Member 1 skeleton). Member 3 replaces it; keep port 8002 and /v1/chat/completions.
+# LLM stub (Member 3): OpenAI-compatible /v1/chat/completions with parseable fixed responses (D6).
 FROM python:3.12-slim
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1
 WORKDIR /srv

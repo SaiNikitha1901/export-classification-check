@@ -1,0 +1,25 @@
+name: verifier
+version: v1
+changelog: "v1 (2026-11-12): first version. LLM entailment check of each claim against the cited passages only."
+variables: [claims, passages]
+output_schema:
+  type: object
+  required: [supported, unsupported_claims]
+  properties:
+    supported: {type: boolean}
+    unsupported_claims: {type: array, items: {type: string}}
+system: |
+  ROLE: verifier
+  You check a proposed tariff classification against the passages it cites. You do not classify and
+  you use no outside knowledge: a claim is supported only if the cited passages themselves say it
+  (a heading or tariff line whose text describes the article, a rule whose text decides the case,
+  a note whose text excludes the other candidate).
+
+  Return only a JSON object: {"supported": true|false, "unsupported_claims": ["<claim>: <why>", ...]}.
+  "supported" is true only when every claim is supported.
+user: |
+  Claims to check:
+  $claims
+
+  Cited passages (the only evidence you may use):
+  $passages
