@@ -90,55 +90,69 @@ On my laptop, port 3000 was busy, so Grafana is at http://localhost:3001 (set in
 ## Member 2 — Corpus, Retrieval & Evaluation
 
 ### 1. My job in one paragraph
-I look after the *knowledge* of the system. The system must give a tariff code (an HS code, a number that says what kind of goods something is) and say if the goods can be exported. To do that, it must read the real legal texts. My job is to get those texts, cut them into small legal pieces, and let the agents search them. I also measure with numbers whether the answers really come from the texts. Right now, only the first step is done: the legal texts are collected and checked.
+I look after the *knowledge* of the system. The system must give a tariff code (an HS code, a number that says what kind of goods something is) and say if the goods can be exported. To do that, the agents must read the real legal texts. My job is to collect those texts, cut them into small legal pieces, and run a search service (the "retriever") that the agents call. Later I also measure with numbers whether the answers really come from the texts. The texts and the search service are built and working. The evaluation part is not built yet.
 
 ### 2. What I built
-- **The corpus** (the set of legal documents), in `corpus/raw/`. These are 8 official PDF files from CBIC (the customs department) and DGFT (the export department). They hold the classification rules (GRI), the Section XV notes, Chapters 73 and 96, and the export policy.
-- **The source list**, `corpus/SOURCES.md`. For each file it gives the title, who published it, the web address, the version and a sha256 hash (a fingerprint that proves the file did not change).
-- **The Evaluation 1 paper**, `docs/eval1_corpus_confirmation.md`. It quotes the exact passages the vacuum flask case needs, and gives the test requests and the expected answers.
-- **A change proposal**, `docs/contract_changes.md`. It asks the team to agree on a name for the export-policy "default rule" passage.
-- **Not built yet:** the ingestion tool, the search service, the cache, the evaluation set and the live scoring.
+- **The corpus** (the set of legal documents), `corpus/raw/`. 8 official PDFs from CBIC (customs) and DGFT (exports). `corpus/SOURCES.md` lists each file's web address, version and sha256 (a fingerprint that proves the file did not change). `corpus/sources.json` tells the program which pages to read.
+- **The parser**, `services/retriever/retriever/ingest/parsers.py`. It cuts the PDFs into **legal units**, not fixed-size pieces: each rule, each note, each heading, each 8-digit tariff line and each export-policy row. Each piece gets an ID, like `HDG-9617` (heading 9617) or `SEC-XV-NOTE-1` (Section XV, Note 1). The result is 438 pieces ("chunks").
+- **The text repair**, `ingest/textnorm.py`. The PDFs come out with broken words ("V ACUUM"). It joins them back only if the whole word appears elsewhere in the same documents, so it never invents text.
+- **The ingestion tool** (a command-line program), `ingest/pipeline.py`. It turns every chunk into an embedding (a list of numbers that captures the meaning) with a free local model, and stores them in **Chroma** (a vector database) through **LangChain**. Running it twice changes nothing. It can switch to a new model without re-reading the PDFs.
+- **The search service**, `retriever/app.py` and `retriever/index.py`, on port 8001. It searches by words (BM25) and by meaning (embeddings), and mixes the two lists. It also finds the notes for a heading, and the export policy for a code.
+- **The cache**, `retriever/cache.py`. It keeps recent search results and query embeddings in Redis (a very fast shared memory store), so repeated questions are answered at once.
+- **Tests**, `services/retriever/tests/`. 18 automatic tests, all passing.
+- **Documents:** `docs/retrieval_design.md` (why the design solves the flask problem), `docs/eval1_corpus_confirmation.md` (passages and expected answers for Evaluation 1), two real problems in `docs/incident_log.md` (#4, #5), and proposal #7 in `docs/contract_changes.md`.
 
 ### 3. How a request moves through my part
-Today no request reaches my part yet, because the search service is not built. Later it will work like this:
-1. The agent sends my search service a question, for example "vacuum flask".
-2. My service searches the legal pieces by words and by meaning.
-3. It sends back the best pieces, each with its ID (for example `HDG-9617`).
-4. The agent can ask for one piece by its ID, or for the notes that apply to a heading.
+1. When the container starts, it checks the index. If there is none, it reads the PDFs and builds the index (about 50 seconds the first time).
+2. Until the index is ready, `/health` says "not ready", so the other services wait.
+3. An agent sends a question to `POST /search`, for example "vacuum flask".
+4. If the same question was asked before, the answer comes from the cache.
+5. If not, the service searches by words and by meaning, mixes the two rankings, and returns the best pieces with their IDs.
+6. The agent can then ask for one piece by its ID (`/clause/HDG-9617`), for the notes that apply to a heading (`/notes/applicable/HDG-7323`), or for the export policy (`/policy/96170011`).
 
 ### 4. The vacuum flask example
-The product is a "stainless steel vacuum flask with a moulded plastic outer body". It is mostly steel, so a simple search finds Chapter 73 (things made of iron or steel), heading 7323. That is wrong. I found the passages that show why:
-- **GRI 1** says: classify by the words of the headings and the notes, not by the chapter title.
-- **Heading 9617** in Chapter 96 says "Vacuum flasks and other vacuum vessels". It names the article directly.
-- **Section XV Note 1(m)** says the steel section "does not cover … other articles of Chapter 96". So heading 7323 is out.
-- **Tariff items**: 9617 00 11 is for flasks up to 0.75 litre, and 9617 00 12 is for bigger flasks. The sentence does not give the size, so we must ask for it, or test with "500 ml".
-- **Export policy**: 9617 is not in DGFT's export list, so General Note 1 makes it "Free" (no licence needed).
+*"Stainless steel vacuum flask with a moulded plastic outer body."*
+- The search returns **heading 9617 first** ("VACUUM FLASKS AND OTHER VACUUM VESSELS"). This works because each heading is its own piece and starts with its own words, and because the word search matches "vacuum flask" exactly.
+- A material-first answer would be heading 7323 (household articles of steel). `/notes/applicable/HDG-7323` returns **Section XV Note 1**, which says that section "does not cover … other articles of Chapter 96". So 7323 is out.
+- `/clause/GRI-1` gives the rule: classify by the words of the headings and the notes.
+- `/policy/96170011` says **Free**. 9617 is not in DGFT's export list, so General Note 1 applies.
+- The 8-digit code depends on the size: up to 0.75 litre is 9617 00 11, bigger is 9617 00 12.
 
 ### 5. How to run and show it
-Nothing runs yet. To check that a corpus file is the original one, compare its fingerprint with `corpus/SOURCES.md`:
 ```
-sha256sum corpus/raw/cbic_tariff_ch96.pdf
+docker compose up -d --build --wait
+docker compose run --rm retriever python -m retriever.ingest status
+curl -s -X POST localhost:8001/search -H "Content-Type: application/json" -d '{"query":"vacuum flask","mode":"keyword","k":3}'
+docker compose run --rm retriever python -m pytest -q tests
 ```
-You should see `7cb3a012…43ac`, the same value as in the table.
+You should see: the status shows 438 chunks; the search shows `HDG-9617` first; the tests say `18 passed`. Run `ingest build` a second time and it says `"embedded_chunks": 0` (nothing changed).
 
 ### 6. Which requirements I covered
-- **§3 corpus**: done. The files are in `corpus/raw/`, with `corpus/SOURCES.md`.
-- **Evaluation 1 corpus confirmation**: draft done in `docs/eval1_corpus_confirmation.md`.
-- **D2, L1, D7, L3, L2, L6**: not started yet.
+- **§3 corpus:** done. `corpus/raw/`, `corpus/SOURCES.md`.
+- **D2:** done. Idempotent `ingest build`, `manifest.json`, `/index/info`, metrics `ecs_index_chunks`, `ecs_index_built_timestamp`, `ecs_ingest_chunks_per_second`.
+- **L1:** done. LangChain + Chroma, structure-aware chunks, `ingest reembed --model X` with an atomic switch.
+- **D7 (my part):** done. Embedding and search cache in Redis. The effect on p95 is not measured yet (needs the load test).
+- **F4 (retriever side):** done. Headings that name the article, plus the notes that apply to them.
+- **Evaluation 1 corpus confirmation:** done (`docs/eval1_corpus_confirmation.md`). The PDF export is still to do.
+- **L3, L2, L6 (scoring):** not started.
 
 ### 7. Viva questions
-1. *Where did the documents come from?* From the official CBIC and DGFT websites. The links and fingerprints are in `corpus/SOURCES.md`.
-2. *Did you need OCR (turning a picture of text into real text)?* No. Every PDF already has a text layer. I checked every page.
-3. *Why is the vacuum flask not in Chapter 73?* Section XV Note 1(m) says the steel section does not cover articles of Chapter 96, and heading 9617 names vacuum flasks.
-4. *Which GRI rules decide it?* GRI 1 picks the heading. GRI 6 picks the 8-digit line inside the heading. GRI 3 is not needed, because only one heading is left.
-5. *What is the export policy and why?* "Free". 9617 is not listed in DGFT Schedule 2, and General Note 1 says goods not listed are freely exportable.
-6. *Why two test requests for the flask?* The 8-digit code depends on the size (up to or over 0.75 litre), and the sentence does not say the size. A careful system asks instead of guessing.
+1. *Why not cut the PDFs into equal pieces?* A legal rule must stay whole. The heading's own words must sit in one piece, so a search for "vacuum flask" finds heading 9617 directly.
+2. *Why search by words and by meaning?* Meaning-search mixes up similar things ("steel flask" looks like other steel goods). Word-search finds the exact name. We use both and mix the rankings.
+3. *How does the agent find a note the question never mentions?* Notes are linked to headings by their chapter and section, not by similarity. `/notes/applicable/HDG-7323` always returns the Section XV notes.
+4. *What does "idempotent" mean here?* Running `build` again does nothing new. Each piece's ID is a fingerprint of its text, so only new or changed pieces are embedded.
+5. *How do you change the embedding model?* `ingest reembed --model X` fills a new collection next to the old one, then switches with one file swap. The service picks it up without a restart.
+6. *What do you cache, and when does the cache become wrong?* Query embeddings and search results. The key includes the index build time, the collection and a ranker version, so a rebuild or a code change gives new keys.
+7. *Why is the export policy "Free" when there is no row for 9617?* DGFT General Note 1 says goods not listed in the schedule are freely exportable.
+8. *Where does the model run? Does it cost money?* On our own CPU, inside the container. It is free and needs no API key.
 
 ### 8. What did not work / limits
-- The old CBIC website (`old.cbic.gov.in`) no longer works. I had to use the new site's hidden download address.
-- The course Google Drive folder had no corpus files, only the project papers.
-- The newest full DGFT export list I could find is marked "ITC (HS) 2018". The faculty must confirm it is fine.
-- The search service and the evaluation are not built yet.
+- The old CBIC website no longer works. I used the new site's own download address.
+- The newest full DGFT export list I found is marked "ITC (HS) 2018". The faculty must confirm it is acceptable.
+- The PDFs break some words. My repair is a careful guess, and tests protect the important passages.
+- The cache once served old results after a code change (incident #4). `reembed` once crashed on a long model name (incident #5). Both are fixed.
+- The first start needs internet to download the model (about 90 MB).
+- The evaluation set, the batch runner, the quality metrics and live scoring are not built yet.
 
 ## Member 3 — Agents & LLM
 

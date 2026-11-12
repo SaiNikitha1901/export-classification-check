@@ -24,3 +24,17 @@ Real failures from development only. Add an entry when something actually breaks
 - **Root cause:** a type mismatch between the DB driver and the metrics library. The end-to-end latency histogram silently never recorded anything.
 - **Fix:** convert with `float(...)` before observing.
 - **Prevention / lesson:** a run being correct in the DB does not mean the job succeeded. The load-test checklist in `loadtest/RESULTS.md` now includes checking worker logs for `"level": "ERROR"` after every run. An empty "Complete run time" panel while runs are finishing is the visible signal of this bug.
+
+### 4. Retriever served stale rankings from the Redis cache after a ranking fix (2026-11-12, Member 2)
+- **Seen:** after changing how BM25 scores tariff lines (so heading 9617 outranks its own tariff lines on "vacuum flask"), a one-off script showed the new ranking, but the API test `test_keyword_search_vacuum_flask_top3` still failed with the old ranking.
+- **Found:** the test response had `cache_hit: true`. The search-cache key contained the index `built_at`, the collection and the query parameters, but nothing about the ranking *code*. The index had not been rebuilt, so the key was unchanged and Redis returned the result computed by the old code.
+- **Root cause:** the cache key did not cover every input that decides the result.
+- **Fix:** a `RANKER_VERSION` constant is now part of every search-cache key (`services/retriever/retriever/index.py`). It must be bumped whenever ranking logic changes. A rebuild or re-embed still invalidates the cache through `built_at` and the collection.
+- **Prevention / lesson:** a cache key must include the code version as well as the data version. When a test fails right after a fix, check `cache_hit` before debugging the logic.
+
+### 5. `ingest reembed` crashed: Chroma rejected the collection name (2026-11-12, Member 2)
+- **Seen:** `python -m retriever.ingest reembed --model sentence-transformers/paraphrase-MiniLM-L3-v2` exited with `ValueError: Expected collection name that … starts and ends with an alphanumeric character`. The default model had worked.
+- **Found:** the collection name was the model slug cut at 40 characters. For this longer model name, the cut ended on a `-`.
+- **Root cause:** truncating without re-checking Chroma's naming rules. The default model was short enough to hide the bug.
+- **Fix:** the name is now `chunks-<slug up to 32 chars, dashes trimmed>-<8-char sha256 of the model name>`. It is always valid, and two long model names can no longer collide. Re-embedding then took 3.5 s for 438 chunks, and the running service switched to the new collection without a restart.
+- **Prevention:** after any change to the pipeline, run `reembed` by hand with a second, longer model name (not yet an automated test). The steps are in `docs/retrieval_design.md` §5.
