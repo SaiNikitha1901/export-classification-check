@@ -89,7 +89,56 @@ On my laptop, port 3000 was busy, so Grafana is at http://localhost:3001 (set in
 
 ## Member 2 — Corpus, Retrieval & Evaluation
 
-_(Member 2 writes this section.)_
+### 1. My job in one paragraph
+I look after the *knowledge* of the system. The system must give a tariff code (an HS code, a number that says what kind of goods something is) and say if the goods can be exported. To do that, it must read the real legal texts. My job is to get those texts, cut them into small legal pieces, and let the agents search them. I also measure with numbers whether the answers really come from the texts. Right now, only the first step is done: the legal texts are collected and checked.
+
+### 2. What I built
+- **The corpus** (the set of legal documents), in `corpus/raw/`. These are 8 official PDF files from CBIC (the customs department) and DGFT (the export department). They hold the classification rules (GRI), the Section XV notes, Chapters 73 and 96, and the export policy.
+- **The source list**, `corpus/SOURCES.md`. For each file it gives the title, who published it, the web address, the version and a sha256 hash (a fingerprint that proves the file did not change).
+- **The Evaluation 1 paper**, `docs/eval1_corpus_confirmation.md`. It quotes the exact passages the vacuum flask case needs, and gives the test requests and the expected answers.
+- **A change proposal**, `docs/contract_changes.md`. It asks the team to agree on a name for the export-policy "default rule" passage.
+- **Not built yet:** the ingestion tool, the search service, the cache, the evaluation set and the live scoring.
+
+### 3. How a request moves through my part
+Today no request reaches my part yet, because the search service is not built. Later it will work like this:
+1. The agent sends my search service a question, for example "vacuum flask".
+2. My service searches the legal pieces by words and by meaning.
+3. It sends back the best pieces, each with its ID (for example `HDG-9617`).
+4. The agent can ask for one piece by its ID, or for the notes that apply to a heading.
+
+### 4. The vacuum flask example
+The product is a "stainless steel vacuum flask with a moulded plastic outer body". It is mostly steel, so a simple search finds Chapter 73 (things made of iron or steel), heading 7323. That is wrong. I found the passages that show why:
+- **GRI 1** says: classify by the words of the headings and the notes, not by the chapter title.
+- **Heading 9617** in Chapter 96 says "Vacuum flasks and other vacuum vessels". It names the article directly.
+- **Section XV Note 1(m)** says the steel section "does not cover … other articles of Chapter 96". So heading 7323 is out.
+- **Tariff items**: 9617 00 11 is for flasks up to 0.75 litre, and 9617 00 12 is for bigger flasks. The sentence does not give the size, so we must ask for it, or test with "500 ml".
+- **Export policy**: 9617 is not in DGFT's export list, so General Note 1 makes it "Free" (no licence needed).
+
+### 5. How to run and show it
+Nothing runs yet. To check that a corpus file is the original one, compare its fingerprint with `corpus/SOURCES.md`:
+```
+sha256sum corpus/raw/cbic_tariff_ch96.pdf
+```
+You should see `7cb3a012…43ac`, the same value as in the table.
+
+### 6. Which requirements I covered
+- **§3 corpus**: done. The files are in `corpus/raw/`, with `corpus/SOURCES.md`.
+- **Evaluation 1 corpus confirmation**: draft done in `docs/eval1_corpus_confirmation.md`.
+- **D2, L1, D7, L3, L2, L6**: not started yet.
+
+### 7. Viva questions
+1. *Where did the documents come from?* From the official CBIC and DGFT websites. The links and fingerprints are in `corpus/SOURCES.md`.
+2. *Did you need OCR (turning a picture of text into real text)?* No. Every PDF already has a text layer. I checked every page.
+3. *Why is the vacuum flask not in Chapter 73?* Section XV Note 1(m) says the steel section does not cover articles of Chapter 96, and heading 9617 names vacuum flasks.
+4. *Which GRI rules decide it?* GRI 1 picks the heading. GRI 6 picks the 8-digit line inside the heading. GRI 3 is not needed, because only one heading is left.
+5. *What is the export policy and why?* "Free". 9617 is not listed in DGFT Schedule 2, and General Note 1 says goods not listed are freely exportable.
+6. *Why two test requests for the flask?* The 8-digit code depends on the size (up to or over 0.75 litre), and the sentence does not say the size. A careful system asks instead of guessing.
+
+### 8. What did not work / limits
+- The old CBIC website (`old.cbic.gov.in`) no longer works. I had to use the new site's hidden download address.
+- The course Google Drive folder had no corpus files, only the project papers.
+- The newest full DGFT export list I could find is marked "ITC (HS) 2018". The faculty must confirm it is fine.
+- The search service and the evaluation are not built yet.
 
 ## Member 3 — Agents & LLM
 
