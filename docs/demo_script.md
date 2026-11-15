@@ -52,4 +52,7 @@ RUN_TIME=60s loadtest/sweep.sh live-demo 10
 Show the Grafana *Service health* dashboard during the run (queue depth, p95, CPU per container).
 
 ### 10. The §4.1 case handled correctly (M3, M2) ⏳
-Vacuum flask → heading 9617 found even though the first search hits chapter 73. The rule and the heading are cited, and the excluding note is cited.
+Reference answer: `docs/decisions.md` D1.
+1. **Exact sentence** (UI: **Load demo case**): *"Stainless steel vacuum flask with a moulded plastic outer body."* → heading **9617** by **GRI-1**. Cites `GRI-1`, `HDG-9617` and `SEC-XV-NOTE-1` (the note that excludes Chapter 96 articles from base-metal chapters, so not 7323). Route **seek-product-clarification**: capacity decides 9617 00 11 vs 9617 00 12.
+2. **Follow-up:** add "Capacity 500 ml." → **96170011** by GRI-1 + **GRI-6**, `clear-for-filing` (verified), export policy **Free** (`EXP-GN-1`).
+3. Open `/runs/{id}/trace` to show that the first search hit Chapter 73, and that the agent then found the heading that names the article.
