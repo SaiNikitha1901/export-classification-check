@@ -1,0 +1,29 @@
+{
+  "_comment": "Machine-readable corpus registry read by `python -m retriever.ingest`. Human-readable details (URLs, sha256) are in SOURCES.md. To update a document: replace the PDF, bump `version`, run `ingest build`; only its changed chunks are re-embedded. parser=none means kept for reference but not indexed.",
+  "documents": [
+    {"doc_id": "cbic-gri", "file": "cbic_tariff_part1_general_notes_gri.pdf", "parser": "gri",
+     "version": "CBIC Customs Tariff as on 30.06.2025", "publisher": "CBIC",
+     "title": "General Rules for the Interpretation of Import Tariff", "pages": [30, 31]},
+    {"doc_id": "cbic-sec-xv", "file": "cbic_tariff_ch72_with_section_xv_notes.pdf", "parser": "section_notes",
+     "version": "CBIC Customs Tariff as on 30.06.2025 (file 30.06.2024)", "publisher": "CBIC",
+     "title": "Section XV notes", "section": "XV", "pages": [1, 2]},
+    {"doc_id": "cbic-ch73", "file": "cbic_tariff_ch73.pdf", "parser": "chapter",
+     "version": "CBIC Customs Tariff as on 30.06.2025 (file 30.06.2024)", "publisher": "CBIC",
+     "title": "Chapter 73: Articles of iron or steel", "chapter": "73", "section": "XV"},
+    {"doc_id": "cbic-sec-xx", "file": "cbic_tariff_ch94_section_xx_opening.pdf", "parser": "none",
+     "version": "CBIC Customs Tariff as on 30.06.2025 (file 30.06.2024)", "publisher": "CBIC",
+     "title": "Section XX opening (no section notes)", "section": "XX"},
+    {"doc_id": "cbic-ch96", "file": "cbic_tariff_ch96.pdf", "parser": "chapter",
+     "version": "CBIC Customs Tariff as on 30.06.2025 (file 30.06.2024)", "publisher": "CBIC",
+     "title": "Chapter 96: Miscellaneous manufactured articles", "chapter": "96", "section": "XX"},
+    {"doc_id": "dgft-sch2", "file": "dgft_itchs_schedule2_export_policy.pdf", "parser": "dgft_schedule2",
+     "version": "DGFT ITC (HS) 2018 Schedule 2 (consolidated)", "publisher": "DGFT",
+     "title": "ITC (HS) Schedule 2: Export Policy"},
+    {"doc_id": "dgft-sch2-gn", "file": "dgft_schedule2_general_notes.pdf", "parser": "dgft_general_notes",
+     "version": "DGFT ITC (HS) 2018 Schedule 2", "publisher": "DGFT",
+     "title": "General Notes to Export Policy"},
+    {"doc_id": "dgft-sch2-read", "file": "dgft_schedule2_how_to_read.pdf", "parser": "none",
+     "version": "DGFT ITC (HS) 2022", "publisher": "DGFT",
+     "title": "How to read Schedule 2"}
+  ]
+}
