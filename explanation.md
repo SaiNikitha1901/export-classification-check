@@ -89,7 +89,71 @@ On my laptop, port 3000 was busy, so Grafana is at http://localhost:3001 (set in
 
 ## Member 2 — Corpus, Retrieval & Evaluation
 
-_(Member 2 writes this section.)_
+### 1. My job in one paragraph
+I look after the *knowledge* of the system and I check its *quality*. The system must give a tariff code (an HS code, a number that says what kind of goods something is) and say if the goods can be exported. To do that, the agents must read the real legal texts. I collected those texts, cut them into small legal pieces, and built a search service (the "retriever") that the agents call. Then I built a test set and tools that measure with numbers whether the answers really come from the texts. All of my part is built and working.
+
+### 2. What I built
+- **The corpus** (the set of legal documents), `corpus/raw/`. 8 official PDFs from CBIC (customs) and DGFT (exports), listed with web address, version and sha256 (a fingerprint that proves a file did not change) in `corpus/SOURCES.md`.
+- **The parser**, `services/retriever/retriever/ingest/`. It cuts the PDFs into **legal units** (each rule, note, heading, tariff line and export rule), 438 pieces in total. Each piece gets an ID like `HDG-9617`. It repairs broken words, but only with words that already exist in the documents.
+- **The ingestion tool** (a command-line program). It turns each piece into an embedding (numbers that capture the meaning) with a free local model and stores them in **Chroma** (a vector database) through **LangChain**. Running it twice changes nothing. It can switch to a new model without re-reading the PDFs.
+- **The search service**, `retriever/app.py`, on port 8001. It searches by words and by meaning and mixes the two. It also finds the notes for a heading (`/notes/applicable`) and the export rule for a code (`/policy`).
+- **The cache**, in Redis (a very fast shared memory store). Repeated questions are answered at once.
+- **The test set**, `eval/scenarios.jsonl`. 28 test products with the correct answer taken from the PDFs, for example the flask, steel bolts, a plastic comb, a laptop (out of scope) and a prompt-injection trick.
+- **The batch runner**, `eval/run_eval.py`. It sends all 28 to the system, waits, and scores every answer. The scores are explained in `eval/METRICS.md`.
+- **The reports:** `eval/BEFORE_AFTER.md` (one change, measured before and after) and `eval/PROMPT_COMPARISON.md` (two prompt versions).
+- **The live scorer**, `retriever/live_scoring.py`. It scores about 1 in 10 real answers automatically, saves the scores, and sends them to Grafana (charts).
+- **Tests:** 29 automatic tests, all passing.
+
+### 3. How a request moves through my part
+1. At start-up, the retriever builds its index if there is none (about 50 seconds the first time). Until then, `/health` says "not ready".
+2. An agent sends a question to `/search`, for example "vacuum flask".
+3. The cache answers if it saw the question before. If not, the service searches, mixes the rankings and returns the best pieces with their IDs.
+4. The agent asks for exact pieces (`/clause/HDG-9617`), the notes for a heading, or the export rule.
+5. When the answer is finished, my live scorer may pick it (1 in 10), check it against the pieces, and save the scores.
+
+### 4. The vacuum flask example
+*"Stainless steel vacuum flask with a moulded plastic outer body."*
+- Search returns **heading 9617 first** ("VACUUM FLASKS AND OTHER VACUUM VESSELS"), not the steel chapter.
+- `/notes/applicable/HDG-7323` returns **Section XV Note 1**: the steel section "does not cover … other articles of Chapter 96". So the steel heading 7323 is out.
+- `/policy/96170011` says **Free** (DGFT General Note 1).
+- The 8-digit code depends on the size: up to 0.75 litre is 9617 00 11, bigger is 9617 00 12. The sentence gives no size, so the right answer is to ask.
+
+### 5. How to run and show it
+```
+docker compose up -d --build --wait
+curl -s -X POST localhost:8001/search -H "Content-Type: application/json" -d '{"query":"vacuum flask","mode":"keyword","k":3}'
+docker compose run --rm retriever python -m pytest -q tests eval/test_metrics.py
+docker compose run --rm -v "$PWD/eval:/srv/eval" retriever python eval/run_eval.py --label myrun --fresh
+```
+You should see: `HDG-9617` first; `29 passed`; and a new folder in `eval/results/` with `summary.md`.
+
+### 6. Which requirements I covered
+- **§3 corpus:** `corpus/raw/`, `corpus/SOURCES.md`.
+- **D2:** idempotent `ingest build`, `manifest.json`, `/index/info`, freshness metrics.
+- **L1:** LangChain + Chroma, legal-unit chunks, `reembed --model X`.
+- **D7 (my part):** embedding and search cache in Redis.
+- **L3:** 28 scenarios, batch runner, four metrics, before/after report.
+- **L2 (running the comparison):** `eval/PROMPT_COMPARISON.md`.
+- **L6 (automatic scoring):** the live scorer, `eval_scores` rows, `ecs_eval_score` for Grafana.
+- **Evaluation 1:** `docs/eval1_corpus_confirmation.md` and the `.pdf`.
+
+### 7. Viva questions
+1. *Why legal-unit pieces, not equal pieces?* A rule must stay whole, and the heading's own words must be in one piece. Then "vacuum flask" finds 9617 directly.
+2. *Why search by words and by meaning?* We measured it. Words plus meaning found more of the needed pieces (recall 0.64 → 0.74), and the agent got the right heading 3 times as often.
+3. *How is a note found that the question never mentions?* By metadata: every heading knows its chapter and section, so `/notes/applicable` returns all their notes.
+4. *What is groundedness?* The share of the answer's claims that the cited texts support. A model (the "judge") checks each claim. It only counts answers that cite something.
+5. *What is a hallucination here?* A quote that is not word-for-word in the retrieved text, or a code or rule that does not exist. We found 0 in all 3 test runs.
+6. *Which prompt was better?* Version 2 was 41% faster and 18% cheaper. Version 1 found the right heading more often. Both made no wrong confident answers.
+7. *Why do most test answers escalate?* We used a small free local model (7B). It often runs out of steps, so the system sends the case to a human instead of guessing. That is safe, but the demo needs a stronger model.
+8. *How does live scoring work?* A loop in the retriever picks about 1 in 10 finished real runs, scores them with the same code as the test runs, and saves the scores for Grafana.
+
+### 8. What did not work / limits
+- With the small local model, 92–96% of test runs escalated, even the flask. The numbers are honest, but they rest on few answered runs.
+- Groundedness was measured on only 1–5 answers per test run, too few to compare.
+- The judge is the same small model, so some scores are only rough.
+- I did not test equal-size pieces end to end: they have no IDs, so citations would break.
+- I found and fixed 4 real bugs (incidents #4–#7 in `docs/incident_log.md`).
+- The newest full DGFT list is from 2018. The faculty must confirm it.
 
 ## Member 3 — Agents & LLM
 

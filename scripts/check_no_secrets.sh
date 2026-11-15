@@ -11,3 +11,11 @@ if [ -n "$hits" ]; then
   echo "D4 violation: move these values into .env / .env.example:"; echo "$hits"; exit 1
 fi
 echo "D4 check passed: no credentials, provider endpoints or model identifiers outside .env.example/docs"
+
+# An empty value followed by an inline comment ("X=   # note") is read by docker compose as the
+# comment text, not as empty (incident: FORCE_SEARCH_MODE broke the retriever in PR #3's CI).
+bad=$(grep -n -E '^[A-Z0-9_]+=[[:space:]]+#' .env.example)
+if [ -n "$bad" ]; then
+  echo ".env.example: empty value with an inline comment (put the comment on its own line):"; echo "$bad"; exit 1
+fi
+echo ".env.example check passed: no empty values with inline comments"

@@ -1,0 +1,65 @@
+{
+  "meta": {
+    "label": "v2-hybrid",
+    "finished_at": "2026-11-12T17:28:00+00:00",
+    "judge": "judge@v1:qwen2.5-7b-12k",
+    "judge_llm_calls": 24,
+    "judge_cache_hits": 1,
+    "index": {
+      "built_at": "2026-11-12T15:41:29+00:00",
+      "collection": "chunks-all-minilm-l6-v2-e9e2c881",
+      "chunk_count": 438,
+      "chunking": "structure"
+    },
+    "search_mode_override": null,
+    "prompt_versions": [
+      "classifier@v2"
+    ],
+    "rescored_at": "2026-11-12T17:29:20+00:00"
+  },
+  "scenarios": 28,
+  "runs_with_result": 26,
+  "quality": {
+    "groundedness": 0.75,
+    "groundedness_runs": 1,
+    "context_relevance": 0.2819,
+    "context_recall": 0.7235,
+    "faithfulness": 1.0,
+    "hallucination_rate": 0.0
+  },
+  "task": {
+    "route_accuracy": [
+      0.2308,
+      26
+    ],
+    "heading_accuracy": [
+      0.0526,
+      19
+    ],
+    "hs_code_accuracy": [
+      0.0556,
+      18
+    ],
+    "clear_for_filing_precision": [
+      1.0,
+      1
+    ],
+    "escalation_precision": 0.2,
+    "escalation_recall": 1.0,
+    "injection_detection": [
+      1.0,
+      2
+    ],
+    "boundary_accuracy": [
+      1.0,
+      28
+    ]
+  },
+  "cost": {
+    "mean_latency_ms": 27225.0385,
+    "mean_cost_usd": 0.0258,
+    "cost_per_100_runs_usd": 2.58,
+    "mean_tool_calls": 11.8462,
+    "mean_prompt_tokens": 41417.9615
+  }
+}

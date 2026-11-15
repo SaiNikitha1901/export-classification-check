@@ -24,3 +24,30 @@ Real failures from development only. Add an entry when something actually breaks
 - **Root cause:** a type mismatch between the DB driver and the metrics library. The end-to-end latency histogram silently never recorded anything.
 - **Fix:** convert with `float(...)` before observing.
 - **Prevention / lesson:** a run being correct in the DB does not mean the job succeeded. The load-test checklist in `loadtest/RESULTS.md` now includes checking worker logs for `"level": "ERROR"` after every run. An empty "Complete run time" panel while runs are finishing is the visible signal of this bug.
+
+### 4. Retriever served stale rankings from the Redis cache after a ranking fix (2026-11-12, Member 2)
+- **Seen:** after changing how BM25 scores tariff lines (so heading 9617 outranks its own tariff lines on "vacuum flask"), a one-off script showed the new ranking, but the API test `test_keyword_search_vacuum_flask_top3` still failed with the old ranking.
+- **Found:** the test response had `cache_hit: true`. The search-cache key contained the index `built_at`, the collection and the query parameters, but nothing about the ranking *code*. The index had not been rebuilt, so the key was unchanged and Redis returned the result computed by the old code.
+- **Root cause:** the cache key did not cover every input that decides the result.
+- **Fix:** a `RANKER_VERSION` constant is now part of every search-cache key (`services/retriever/retriever/index.py`). It must be bumped whenever ranking logic changes. A rebuild or re-embed still invalidates the cache through `built_at` and the collection.
+- **Prevention / lesson:** a cache key must include the code version as well as the data version. When a test fails right after a fix, check `cache_hit` before debugging the logic.
+
+### 5. `ingest reembed` crashed: Chroma rejected the collection name (2026-11-12, Member 2)
+- **Seen:** `python -m retriever.ingest reembed --model sentence-transformers/paraphrase-MiniLM-L3-v2` exited with `ValueError: Expected collection name that … starts and ends with an alphanumeric character`. The default model had worked.
+- **Found:** the collection name was the model slug cut at 40 characters. For this longer model name, the cut ended on a `-`.
+- **Root cause:** truncating without re-checking Chroma's naming rules. The default model was short enough to hide the bug.
+- **Fix:** the name is now `chunks-<slug up to 32 chars, dashes trimmed>-<8-char sha256 of the model name>`. It is always valid, and two long model names can no longer collide. Re-embedding then took 3.5 s for 438 chunks, and the running service switched to the new collection without a restart.
+- **Prevention:** after any change to the pipeline, run `reembed` by hand with a second, longer model name (not yet an automated test). The steps are in `docs/retrieval_design.md` §5.
+
+### 6. `/clause/GRI-3(b)` returned 404 (2026-11-12, Member 2)
+- **Seen:** validating `eval/scenarios.jsonl` against the corpus (every supporting clause must resolve) failed for `GRI-3(a)`, `GRI-3(b)` and `GRI-3(c)`. `/clause/GRI-3` (prefix) and `/clause/GRI-1` worked.
+- **Found:** `/clause` upper-cased the whole ID, turning `GRI-3(b)` into `GRI-3(B)`, which matches nothing. The existing tests only used IDs without a sub-rule letter.
+- **Impact if missed:** Member 3's verifier calls `/clause` to check citations, so any answer citing GRI 3(b) (composite goods and sets) would have failed verification and escalated.
+- **Fix:** `Index.normalise_clause_id` upper-cases the ID but keeps sub-rule letters lower case. A regression test (`test_clause_with_sub_rule_letter`) covers `GRI-3(b)`, `gri-3(b)` and `GRI-2(a)`.
+- **Lesson:** validate test data against the real service. The scenario check found a bug that 18 passing tests did not.
+
+### 7. Evaluation metrics: two code bugs and one misleading definition, caught before reporting (2026-11-12, Member 2)
+- **Seen:** (a) a unit test on a hand-made run showed the lexical judge rejecting the correct claim "Tariff item 96170011 covers vacuum flasks". (b) Another showed "Verified; policy Free." not being split into two claims. (c) The first real batch reported groundedness **0.03**, which was implausibly low.
+- **Found:** (a) the 8-digit code counted as a "word", but the corpus prints codes as "9617 00 11", so the word never matched and pushed correct claims under the 60% threshold. (b) The splitter only split before a capital letter. (c) 23 of 25 runs were escalations with no citations, whose summaries are process statements ("No verified classification. The agent hit a loop limit…"). Scored against no passages, they were always 0.
+- **Fix:** (a) codes are checked separately (spacing-insensitive) and no longer counted as words. (b) Split on every `;`. (c) Groundedness is now *not applicable* to runs without citations and is reported with its coverage (`groundedness_runs`); the definition is in `eval/METRICS.md`. A `--rescore` mode re-scores finished batches from their stored traces, so every compared batch uses identical metric code.
+- **Lesson:** test the metric code like product code, and sanity-check every metric's first real number before believing it.

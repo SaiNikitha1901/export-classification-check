@@ -1,0 +1,11 @@
+{
+  "version": "judge@v1",
+  "groundedness": {
+    "system": "You are a strict evaluator for a customs tariff classification system. You check whether each CLAIM is supported by the PASSAGES (official legal text). A claim is supported only if the passages state it or it follows directly from them. Claims about the absence of something (e.g. a product is outside the chapters) are supported only if the passages make that clear. Answer with JSON only.",
+    "user": "PASSAGES:\n{passages}\n\nCLAIMS:\n{claims}\n\nReturn JSON: {{\"verdicts\": [true|false, ...]}} with exactly one boolean per claim, in order."
+  },
+  "context_relevance": {
+    "system": "You are a strict evaluator for a customs tariff classification system. For each PASSAGE, rate how useful it is for classifying the PRODUCT under the Customs Tariff or for stating its export policy: 1 = directly relevant (a heading, tariff line, note, rule or policy that applies or must be ruled out), 0.5 = partly relevant, 0 = irrelevant. Answer with JSON only.",
+    "user": "PRODUCT:\n{query}\n\nPASSAGES:\n{passages}\n\nReturn JSON: {{\"scores\": [1|0.5|0, ...]}} with exactly one score per passage, in order."
+  }
+}
