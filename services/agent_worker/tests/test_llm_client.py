@@ -104,3 +104,44 @@ def test_missing_usage_is_estimated():
         return httpx.Response(200, json={"choices": [{"message": {"content": "x" * 400}}]})
     r = client(handler).chat(MSG, agent="t", step="s")
     assert r.completion_tokens == 100 and r.prompt_tokens > 0
+
+
+def _rate_limited_then_ok(n_429, retry_after):
+    calls = []
+
+    def handler(request):
+        calls.append(1)
+        if len(calls) <= n_429:
+            return httpx.Response(429, headers={"retry-after": str(retry_after)}, json={"error": "rate limit"})
+        return httpx.Response(200, json=OK)
+    handler.calls = calls
+    return handler
+
+
+def test_rate_limit_waits_retry_after_and_does_not_open_breaker():
+    redis, sleeps = fakeredis.FakeRedis(), []
+    h = _rate_limited_then_ok(8, 7)                     # more 429s than the breaker threshold (5)
+    r = client(h, redis=redis, sleeps=sleeps).chat(MSG, agent="t", step="s")
+    assert r.provider == "primary" and len(h.calls) == 9
+    assert len(sleeps) == 8 and all(s >= 7 for s in sleeps)   # waited what the provider asked
+    assert not redis.get("ecs:cb:primary:open_until")        # a rate limit is not an outage
+
+
+def test_rate_limit_hint_in_body_is_used():
+    sleeps = []
+
+    def handler(request, calls=[]):
+        calls.append(1)
+        if len(calls) == 1:
+            return httpx.Response(429, json={"error": {"message": "Please try again in 8.44s."}})
+        return httpx.Response(200, json=OK)
+    client(handler, sleeps=sleeps).chat(MSG, agent="t", step="s")
+    assert 8.44 <= sleeps[0] <= 9.5
+
+
+def test_long_retry_after_counts_as_failure(monkeypatch):
+    monkeypatch.delenv("LLM_FALLBACK_BASE_URL", raising=False)
+    redis = fakeredis.FakeRedis()
+    with pytest.raises(LLMUnavailable, match="429"):
+        client(_rate_limited_then_ok(99, 3600), redis=redis).chat(MSG, agent="t", step="s")
+    assert int(redis.get("ecs:cb:primary:fails") or 0) == 1   # daily quota spent: counted, then fallback

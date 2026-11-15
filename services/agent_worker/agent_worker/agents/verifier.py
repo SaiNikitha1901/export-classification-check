@@ -1,7 +1,8 @@
 """Agent 3 - Verifier (A3). Checks a draft BEFORE it can be returned.
 
-1. Deterministic (code, not a model): every quote is an exact substring (whitespace-normalised) of a
-   passage retrieved in this run under the cited clause_id; the heading and the deciding rule were
+1. Deterministic (code, not a model): every quote is exact text (whitespace/dash-normalised; fragments
+   joined by '...' must each match, in order) from the text or title of a passage retrieved in this run
+   under the cited clause_id; the heading and the deciding rule were
    retrieved and cited; the 8-digit code exists in the corpus under the cited heading; the GRI order
    was respected (a heading that names the article was searched for, applicable notes were read, and a
    displaced first candidate is explained by a cited note or rule).
@@ -26,8 +27,37 @@ _STOP = {"with", "and", "the", "for", "made", "other", "outer", "inner", "body",
          "plastics", "steel", "stainless", "iron", "metal", "base", "article", "articles", "part", "parts"}
 
 
+_CHARMAP = str.maketrans({"\u2010": "-", "\u2011": "-", "\u2012": "-", "\u2013": "-", "\u2014": "-",
+                          "\u2018": "'", "\u2019": "'", "\u201c": '"', "\u201d": '"', "\u00a0": " "})
+_ELLIPSIS = re.compile(r"\s*(?:\.\.\.|\u2026|\[\.\.\.\])\s*")
+
+
 def _norm(s: str) -> str:
-    return re.sub(r"\s+", " ", s or "").strip()
+    """Whitespace collapsed, typographic dashes/quotes mapped to ASCII. Nothing else is forgiven."""
+    return re.sub(r"\s+", " ", (s or "").translate(_CHARMAP)).strip()
+
+
+def quote_in_passage(quote: str, passage: dict) -> bool:
+    """True if the quote is exact text from the passage (its text or its title). Models shorten long
+    notes with '...': each fragment between ellipses must then appear exactly, in order, and the
+    fragments together must still be substantial (>= 15 characters)."""
+    haystacks = [_norm(passage.get("text", "")), _norm(passage.get("title", ""))]
+    q = _norm(quote)
+    if any(q and q in h for h in haystacks):
+        return True
+    parts = [x for x in _ELLIPSIS.split(q) if x]
+    if len(parts) < 2 or sum(len(x) for x in parts) < 15:
+        return False
+    for h in haystacks:
+        pos = 0
+        for part in parts:
+            pos = h.find(part, pos)
+            if pos < 0:
+                break
+            pos += len(part)
+        else:
+            return True
+    return False
 
 
 def _stem(w: str) -> str:
@@ -58,8 +88,9 @@ def check_citations(draft: Draft, evidence: dict[str, dict]) -> list[str]:
             problems.append(f"citation {i}: passage {c.passage_id} is clause {p.get('clause_id')}, not {c.clause_id}")
         elif len(_norm(c.quote)) < 15:
             problems.append(f"citation {i} ({c.clause_id}): quote is too short to be evidence")
-        elif _norm(c.quote) not in _norm(p.get("text", "")):
-            problems.append(f"citation {i} ({c.clause_id}): quote is not an exact substring of passage {c.passage_id}")
+        elif not quote_in_passage(c.quote, p):
+            problems.append(f"citation {i} ({c.clause_id}): quote is not exact text from passage {c.passage_id} "
+                            "(copy the words exactly; '...' may join exact fragments)")
     return problems
 
 

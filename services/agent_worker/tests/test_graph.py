@@ -60,7 +60,7 @@ def test_verifier_catches_fabricated_quote_and_classifier_retries():
     ctx = make_ctx(FLASK + " Capacity 500 ml.", llm=ScriptedLLM(_fake_citation_hook(times=1)))
     r = graph.run(ctx)
     failed = [s for s in steps(ctx, agent="verifier", name="deterministic_checks") if s["status"] == "failed"]
-    assert failed and "not an exact substring" in json.dumps(failed[0]["output"])
+    assert failed and "not exact text" in json.dumps(failed[0]["output"])
     assert len(steps(ctx, agent="classifier", kind="llm")) > 4          # it searched again
     assert r.verification.passed and r.verification.attempts == 2
     assert r.route == "clear-for-filing" and r.proposed_hs_code == "96170011"

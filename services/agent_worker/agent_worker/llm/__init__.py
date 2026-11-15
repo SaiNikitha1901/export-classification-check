@@ -2,14 +2,20 @@
 
 Path for every call: primary provider -> fallback provider (if configured) -> LLMUnavailable,
 which the graph turns into a degraded, retrieval-only result. Per provider:
-timeout on every request, bounded retry with exponential backoff + jitter (timeouts, 429, 5xx,
+timeout on every request, bounded retry with exponential backoff + jitter (timeouts, 5xx,
 connection errors only), and a Redis-shared circuit breaker.
+
+Rate limits (429) are not outages: free tiers (e.g. 8k tokens/minute) answer 429 with a Retry-After
+hint. A short hint (<= LLM_RATE_LIMIT_MAX_WAIT_S) is honoured by waiting, within the run's wall-clock
+budget, and does not count against the breaker. A long hint (daily quota spent) counts as a failure
+and moves on to the fallback provider.
 """
 from __future__ import annotations
 
 import json
 import logging
 import random
+import re
 import time
 from dataclasses import dataclass, field
 from typing import Any, Optional
@@ -30,6 +36,24 @@ class LLMUnavailable(Exception):
 
 class _Retryable(Exception):
     pass
+
+
+class _RateLimited(_Retryable):
+    def __init__(self, retry_after: float):
+        super().__init__(f"HTTP 429 (retry after {retry_after:.1f}s)")
+        self.retry_after = retry_after
+
+
+def _retry_after(resp: httpx.Response) -> float:
+    """Seconds the provider asks us to wait: Retry-After header, else 'try again in 8.4s' in the body."""
+    try:
+        return max(0.0, float(resp.headers.get("retry-after", "")))
+    except ValueError:
+        pass
+    m = re.search(r"try again in ([\d.]+)\s*(ms|s)", resp.text or "")
+    if m:
+        return float(m.group(1)) / (1000 if m.group(2) == "ms" else 1)
+    return 5.0
 
 
 @dataclass
@@ -63,7 +87,8 @@ class LLMClient:
             if not breaker.allow():
                 errors.append(f"{prov.name}: circuit open")
                 continue
-            for attempt in range(self.s.llm_max_retries + 1):
+            attempt = rate_waits = 0
+            while True:
                 timeout = self.s.llm_timeout_s
                 if deadline is not None:
                     timeout = min(timeout, deadline - time.monotonic())
@@ -73,16 +98,34 @@ class LLMClient:
                 start = time.perf_counter()
                 try:
                     data = self._post(prov, messages, tools, json_mode, timeout)
+                except _RateLimited as exc:
+                    errors.append(f"{prov.name}: {exc}")
+                    wait = exc.retry_after + random.uniform(0.2, 1.0)
+                    too_long = exc.retry_after > self.s.rate_limit_max_wait_s
+                    over_budget = deadline is not None and time.monotonic() + wait >= deadline
+                    if too_long or rate_waits >= self.s.rate_limit_max_waits:
+                        breaker.record_failure()   # quota spent, not a blip: try the fallback provider
+                        break
+                    if over_budget:
+                        errors.append(f"{prov.name}: run wall-clock budget spent waiting for rate limit")
+                        raise LLMUnavailable("; ".join(errors))
+                    rate_waits += 1
+                    llm_retries.labels(agent=agent).inc()
+                    log.info("rate limited, waiting %.1fs", wait, extra={"event": "llm_rate_limited",
+                                                                        "provider": prov.name, "llm_step": step})
+                    self.sleep(wait)
+                    continue
                 except _Retryable as exc:
                     breaker.record_failure()
                     errors.append(f"{prov.name} attempt {attempt + 1}: {exc}")
                     log.warning("llm call failed: %s", exc, extra={"event": "llm_error", "provider": prov.name,
                                                                    "attempt": attempt + 1, "llm_step": step})
-                    if attempt == self.s.llm_max_retries or breaker.state() != "closed":
+                    if attempt >= self.s.llm_max_retries or breaker.state() != "closed":
                         break
                     backoff = min(8.0, 0.5 * 2 ** attempt) * random.uniform(0.5, 1.5)
                     if deadline is not None and time.monotonic() + backoff >= deadline:
                         break
+                    attempt += 1
                     llm_retries.labels(agent=agent).inc()
                     self.sleep(backoff)
                     continue
@@ -90,7 +133,8 @@ class LLMClient:
                     errors.append(f"{prov.name}: HTTP {exc.response.status_code} {exc.response.text[:200]}")
                     break
                 breaker.record_success()
-                return self._response(data, prov, agent, start, attempt + 1, errors, len(json.dumps(messages)))
+                return self._response(data, prov, agent, start, attempt + rate_waits + 1, errors,
+                                      len(json.dumps(messages)))
         raise LLMUnavailable("; ".join(errors) or "no LLM provider configured")
 
     def _post(self, prov: Provider, messages, tools, json_mode, timeout) -> dict:
@@ -107,7 +151,9 @@ class LLMClient:
                                   headers={"Authorization": f"Bearer {prov.api_key}"})
         except (httpx.TimeoutException, httpx.TransportError) as exc:
             raise _Retryable(f"{type(exc).__name__}: {exc}") from exc
-        if resp.status_code == 429 or resp.status_code >= 500:
+        if resp.status_code == 429:
+            raise _RateLimited(_retry_after(resp))
+        if resp.status_code >= 500:
             raise _Retryable(f"HTTP {resp.status_code}")
         resp.raise_for_status()
         try:

@@ -36,6 +36,9 @@ class Settings:
     cb_open_s: int = 30
     toxicity_threshold: float = 0.7
     force_fail: str = ""   # demo switch: "", "primary", "fallback" or "all"
+    rate_limit_max_wait_s: float = 60.0   # honour a 429 Retry-After up to this long; longer = quota spent
+    rate_limit_max_waits: int = 30        # per call, so a stuck provider cannot loop forever
+    classifier_max_turns: int = 10
 
 
 def load() -> Settings:
@@ -61,4 +64,7 @@ def load() -> Settings:
         cb_open_s=int(_env("CB_OPEN_S", "30")),
         toxicity_threshold=float(_env("TOXICITY_THRESHOLD", "0.7")),
         force_fail=_env("LLM_FORCE_FAIL").lower(),
+        rate_limit_max_wait_s=float(_env("LLM_RATE_LIMIT_MAX_WAIT_S", "60")),
+        rate_limit_max_waits=int(_env("LLM_RATE_LIMIT_MAX_WAITS", "30")),
+        classifier_max_turns=int(_env("CLASSIFIER_MAX_TURNS", "10")),
     )

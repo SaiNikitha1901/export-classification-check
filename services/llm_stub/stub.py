@@ -6,7 +6,7 @@ It picks the behaviour from the "ROLE: <agent>" line of the system prompt:
   extractor  -> JSON facts (article, materials, ...) from the description
   classifier -> a scripted analyst: hybrid search -> notes -> keyword search for the article -> GRI-1/GRI-6
                 -> submit_classification, quoting text from the passages the tools actually returned
-  verifier   -> {"supported": true}
+  verifier   -> supported only if the cited passages contain every key word of the article name
 Deterministic apart from the delay, and works against the real retriever as well as the fake one.
 """
 from __future__ import annotations
@@ -133,8 +133,10 @@ def classifier(messages: list[dict]) -> tuple[str, list[dict]]:
         return call("search_corpus", query=article, kinds=["heading", "tariff_line"], mode="keyword")
 
     terms = _words(article) - _words(" ".join(MATERIALS)) - _NOISE
+    # A heading must contain EVERY key word of the article name (laptop AND computer), not just one:
+    # "Computer printer ribbon" (9612) must not pass for a laptop.
     scored = [(len(terms & _words(p.get("text", ""))), p) for p in passages if _heading(p)]
-    scored = [x for x in scored if x[0] > 0]
+    scored = [x for x in scored if terms and x[0] == len(terms)]
     if not scored:
         return submit(article=article, out_of_scope=True,
                       reasoning=f"No heading in Chapters 73 or 96 names or describes '{article}'.")
@@ -182,6 +184,20 @@ def classifier(messages: list[dict]) -> tuple[str, list[dict]]:
                                + ", ".join(missing) + "." if missing else "."))
 
 
+def verifier(messages: list[dict]) -> dict:
+    """Entailment, deterministically: supported only if the cited passages contain every key word of
+    the article name. Without this the stub would approve any heading (a laptop under 9612)."""
+    user = next((m["content"] for m in messages if m["role"] == "user"), "")
+    m = re.search(r"covers the article '([^']+)'", user)
+    terms = (_words(m.group(1)) - _words(" ".join(MATERIALS)) - _NOISE) if m else set()
+    passages = _words(user.split("Cited passages", 1)[-1])   # only the evidence, not the claims
+    missing = sorted(terms - passages)
+    if not terms or missing:
+        return {"supported": False,
+                "unsupported_claims": [f"the cited passages do not name the article ({', '.join(missing) or 'unknown'})"]}
+    return {"supported": True, "unsupported_claims": []}
+
+
 def submit(article, heading="", code="", gri=(), citations=(), missing=(), out_of_scope=False, reasoning=""):
     args = {"article": article, "heading": heading, "proposed_hs_code": code, "gri_applied": list(gri),
             "decided_by": "GRI-1" if heading else "", "reasoning_summary": reasoning, "citations": list(citations),
@@ -212,7 +228,7 @@ async def chat(body: dict):
     elif role == "classifier":
         content, tool_calls = classifier(messages)
     elif role == "verifier":
-        content = json.dumps({"supported": True, "unsupported_claims": []})
+        content = json.dumps(verifier(messages))
     delay = random.uniform(DELAY_MIN, DELAY_MAX)
     delay_h.observe(delay)
     await asyncio.sleep(delay)

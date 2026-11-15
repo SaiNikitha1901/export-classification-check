@@ -99,7 +99,7 @@ def test_good_draft_passes():
 
 def test_fabricated_quote_fails():
     d = good(citations=[_cite("GRI-1"), _cite("HDG-9617", "VACUUM FLASKS ARE ALWAYS IN THIS HEADING")])
-    assert any("not an exact substring" in p for p in check_draft(d, EV, LOG, {}))
+    assert any("not exact text" in p for p in check_draft(d, EV, LOG, {}))
 
 
 def test_passage_not_retrieved_fails():
@@ -121,3 +121,28 @@ def test_gri_order_skipping_name_search_and_notes_fails():
 def test_displaced_first_candidate_needs_excluding_note():
     d = good(citations=[_cite("GRI-1"), _cite("HDG-9617"), _cite("TL-96170011")])
     assert any("displaced" in p for p in check_draft(d, EV, LOG, {"article": "vacuum flask"}))
+
+
+def test_quote_rules():
+    from agent_worker.agents.verifier import quote_in_passage
+    p = {"title": "Heading 9617: VACUUM FLASKS AND OTHER VACUUM VESSELS",
+         "text": "1. This Chapter does not cover : (a) pencils for cosmetic or toilet uses (Chapter 33); "
+                 "(b) articles of Chapter 66 (for example, parts of umbrellas); (e) cutlery of Chapter 82."}
+    assert quote_in_passage("Heading 9617: VACUUM FLASKS AND OTHER VACUUM VESSELS", p)      # title counts
+    assert quote_in_passage("does not cover : (a) pencils ... (e) cutlery of Chapter 82", p)  # exact fragments
+    assert quote_in_passage("pencils for cosmetic or toilet uses (Chapter 33)", p)
+    assert not quote_in_passage("(e) cutlery ... (a) pencils for cosmetic", p)                # wrong order
+    assert not quote_in_passage("articles of Chapter 96 ... cutlery", p)                      # invented part
+    assert not quote_in_passage("a ... b", p)                                                 # too little
+
+
+def test_exclusion_item_found_in_section_xv_note():
+    from agent_worker.agents.classifier import _excluding_item
+    note = ("1. This Section does not cover : (a) prepared paints (headings 3207 to 3210); (l) articles of "
+            "Section XIX (arms and ammunition); (m) hand sieves, buttons, pens, pencil-holders, pen nibs and "
+            "similar articles or other articles of Chapter 96 (miscellaneous manufactured articles); or\" "
+            "(n) articles of Chapter 97 (for example, works of art).")
+    item = _excluding_item(note, "96", "9617")
+    assert item.startswith("(m) hand sieves") and item.endswith("(miscellaneous manufactured articles)")
+    assert item in note
+    assert _excluding_item(note, "84", "8418") == ""
