@@ -127,6 +127,14 @@ def test_run_cache_key_normalisation():
     assert cache_key(a, "v1", "t1") != cache_key(a, "v2", "t1"), "prompt change must change the key"
     assert cache_key(a, "v1", "t1") != cache_key(a, "v1", "t2"), "index rebuild must change the key"
     assert cache_key(a, "v1", "unknown") is None
+    import os
+    before = cache_key(a, "v1", "t1")
+    old_model = os.environ.get("LLM_MODEL", "")
+    os.environ["LLM_MODEL"] = old_model + "-other"
+    try:
+        assert cache_key(a, "v1", "t1") != before, "switching the LLM must change the key"
+    finally:
+        os.environ["LLM_MODEL"] = old_model
 
 
 def test_ratelimit_window_unit():
