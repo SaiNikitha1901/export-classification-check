@@ -157,4 +157,82 @@ You should see: `HDG-9617` first; `29 passed`; and a new folder in `eval/results
 
 ## Member 3 — Agents & LLM
 
-_(Member 3 writes this section.)_
+### 1. My job in one paragraph
+I built the "brain" of the system. My part reads the product description and finds the right tariff heading, the way a trade-compliance analyst does. It names the rule it used and gives quotes from the tariff as proof. The hard part is **knowing when not to answer**. My part checks its own answer against the text it found. If the answer is not supported, it searches again. If it still cannot support the answer, it hands the case to a human (this is called **escalation**). It never files anything.
+
+### 2. What I built
+- **Agents** (`services/agent_worker/agent_worker/agents/`). Three agents (small AI workers, each with one job). Each one has its own prompt, its own tools and its own limits:
+  - **Intake agent** (`intake.py`). It reads the request and writes down what the thing is (the "article"), what it is for, and what it is made of.
+  - **Classifier agent** (`classifier.py`). It searches the tariff like an analyst. It decides by itself which search tool to call next. It then proposes a heading, the rule used, and quotes.
+  - **Verifier agent** (`verifier.py`). It checks the classifier's answer **before** anyone sees it. Normal code (not the AI) checks that every quote really appears in a passage we found in this run. After that, an AI check asks: "do these passages really support the answer?"
+- **Router** (`agents/router.py`). It looks up the export policy and chooses one of the three routes. Normal code decides the route, not the AI. So a user cannot trick the AI into saying "clear-for-filing".
+- **The graph** (`graph.py`). LangGraph (a library that connects agents like boxes and arrows) joins the agents. It also sends a failed answer back for a second try.
+- **Tools** (`tools.py`). These are read-only searches of Member 2's retriever: search, get a clause by its ID, get the notes for a heading, and get the export policy.
+- **LLM client** (`llm/`). This is the one door to the AI model (LLM = large language model). It has a time limit on every call. It retries with growing waits. A **circuit breaker** (like a fuse in a house) stops calling a broken provider for 30 seconds. Then a backup provider is tried, and then a "degraded" answer is given. It also records tokens and cost for every call.
+- **Guardrails** (`guardrails.py`). Safety checks:
+  - It blocks prompt injection (text that tries to give orders to the AI).
+  - It checks for toxic language with a small local model called detoxify.
+  - It removes words the system is not allowed to say, like "final" or "filed", or a duty amount.
+- **Prompts** (`prompts/`). The AI instructions are kept as versioned files. `classifier@v1` lets the model reason freely. `classifier@v2` gives it a strict step-by-step list of the rules. Every result records which version was used.
+- **LLM stub** (`services/llm_stub/stub.py`). A fake AI server for load tests. It answers in the same format as a real one after 1.5–4 seconds, so a full run works with no real AI.
+- **Fake retriever** (`services/agent_worker/tests/fake_retriever.py`). A small stand-in for Member 2's search service, used only in tests. Its text is copied from the official Customs Tariff Act PDF.
+
+### 3. How a request moves through my part
+1. A worker takes the job from the queue. It loads the request from the database and marks it "running".
+2. **Input guard:** it checks every text field for injection and toxic words. If a check fires, it stops and escalates.
+3. **Intake agent:** it extracts the article, its use and its materials.
+4. **Classifier agent:** it searches, reads the notes, searches again, and applies the rules (the GRI, the General Rules for Interpretation) in order. Then it submits a draft with quotes.
+5. **Verifier agent:** it checks every quote and every rule. If a check fails, the classifier tries again with a different search plan (at most 2 more times).
+6. **Router:** it gets the export policy and picks the route. It also cleans the text and adds the disclaimer.
+7. The final result is saved. **Every step** (each AI call, each search, each check) is saved as one row. So the whole run can be rebuilt later.
+
+### 4. The vacuum flask example
+For *"Stainless steel vacuum flask with a moulded plastic outer body."*:
+- The intake agent says: the article is a "vacuum flask", made of stainless steel and plastic.
+- The first search finds **Chapter 73** (articles of steel, heading 7323). A simple system would stop here.
+- The classifier reads the notes for Chapter 73. **Section XV Note 1(m)** says this section does not cover "articles of Chapter 96".
+- It searches for a heading that **names** the thing. It finds **heading 9617, "Vacuum flasks and other vacuum vessels"**.
+- **GRI 1** says: decide by the words of the headings and the notes. So the answer is 9617.
+- The verifier checks that the quotes from GRI 1, heading 9617 and Note 1(m) really appear in the found text.
+- Then there is a catch. In the official tariff, 9617 splits by size: **9617 00 11** is for flasks up to 0.75 litre, and **9617 00 12** for bigger ones. The description gives no size. So the route is **seek-product-clarification**: "please tell us the capacity". If you add "Capacity 1 litre.", the route becomes **clear-for-filing** with **96170012**.
+
+### 5. How to run and show it
+```bash
+docker compose build agent-worker llm-stub
+docker compose run --rm agent-worker python -m pytest -q tests      # all my tests
+docker compose -f docker-compose.yml -f services/agent_worker/tests/compose.fake-retriever.yml up -d --build
+docker compose exec redis redis-cli SET ecs:chaos:llm_fail all   # make the AI "break" (demo #8)
+docker compose exec redis redis-cli DEL ecs:chaos:llm_fail       # fix it again
+```
+With the fake retriever running, submit the flask in the web page at http://localhost:8000/ui. You should see heading 9617, the citations, and the route. `GET /runs/{id}/trace` shows every step. The exact demo steps are in `docs/agent_design.md`, section 8.
+
+### 6. Which requirements I covered
+- **F3**: the intake agent (`agents/intake.py`).
+- **F4**: the classifier tools, including the name search and the notes lookup (`tools.py`, `agents/classifier.py`).
+- **F5**: a draft with the heading, the GRI rule and quotes, checked by the verifier.
+- **F6 / F7**: the router rules in `agents/router.py`. It escalates for: out of scope, two equal headings after GRI 3, failed checks, the AI being down, or a limit being hit.
+- **A1**: LangGraph, 5 tools, and limits on steps, tool calls and time (`recorder.Budget`).
+- **A2**: 3 agents with a typed hand-off. `docs/agent_design.md` explains what happens when each one fails.
+- **A3**: the verifier, with code checks, an AI check and up to 2 retries.
+- **A5**: timeouts, retries, the shared circuit breaker, a backup provider and degraded mode (`llm/`).
+- **A6**: the worker sends its numbers to Prometheus on port 9100 (`metrics.py`).
+- **L2**: the prompt files with versions, two classifier versions, and the version saved on every step.
+- **L4**: injection, toxicity and output filtering (`guardrails.py`).
+- **L5**: tokens and cost for every step and every run. The report is in `docs/cost_report.md`.
+
+### 7. Viva questions
+1. **Why is this an agent and not a pipeline?** The classifier decides by itself which search to run next. The verifier can send the answer back to search again. A pipeline always runs the same fixed steps.
+2. **Why are there two (three) agents and not one prompt?** Each agent has its own job, prompt, tools and limits. For example, only the classifier can search, and only the router can look up policy. When one fails, the others react in a defined way.
+3. **How do you know a citation is real?** Normal code checks that the quote appears, letter by letter, in a passage that was found during this run. The AI cannot fake this check.
+4. **What happens if the AI provider is down?** We retry with growing waits. Then the circuit breaker opens, so we stop calling it. Then we try the backup provider. If all of that fails, we return a "degraded" result: candidate headings only, no code, sent to a specialist.
+5. **What does the circuit breaker store, and where?** It stores the failure count and the "open until" time in Redis (a fast memory store that all workers share). So all 3 workers see the same state.
+6. **How do you stop prompt injection?** We check every text field for order-like text. Customer text is placed inside `<product_data>` tags and called "data". The route is decided by normal code. If injection is found, the run goes to a human.
+7. **Why not just strip the bad text and continue?** Removing only part of an attack can leave some of it behind for an AI that holds tools. Sending it to a human is safer and cheap.
+8. **Where does the cost come from?** The classifier is 93% of the cost. In a tool loop, every search result is sent back to the model again on every turn. So the prompt grows from about 700 to 3,500 tokens over one attempt. Each AI call stores its tokens and cost in its own step row. With the stub, 100 runs cost about $1.04 at our notional prices.
+
+### 8. What did not work / limits
+- Member 2's real retriever is not merged yet. So far I tested with my fake retriever (real tariff text, but only a handful of passages).
+- I could not reach an official DGFT export-policy file for heading 9617. The "Free" rows in the fake retriever are marked UNCONFIRMED.
+- The injection check uses patterns (a list of known attack phrases). A new kind of attack worded differently could get past it. The delimiters and the code-based routing are the second line of defence.
+- The real-AI cost per 100 runs is not measured yet. The numbers in `docs/cost_report.md` come from the stub ($1.04 per 100 runs). A real provider also bills the tool descriptions, so expect about 1.5–2× more.
+- What I did test for real, through the API: the flask (about 21 s with the stub), the capacity case, the laptop, injection, and the circuit breaker opening and closing again. With 3 workers (`--scale agent-worker=3`), all 3 shared the jobs and Prometheus saw all 3.

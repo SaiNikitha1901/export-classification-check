@@ -124,7 +124,7 @@ agents = dashboard("ecs-agents", "ECS · Agents (A6)", [
     panel("LLM retry rate (retries per run) per agent",
           "sum by (agent) (increase(ecs_llm_retries_total[15m])) / sum by (agent) (increase(ecs_agent_runs_total[15m]))",
           legend="{{agent}}"),
-    panel("Circuit breaker state (0 closed, 1 half-open, 2 open)", "ecs_circuit_breaker_state",
+    panel("Circuit breaker state (0 closed, 1 open, 2 half-open)", "ecs_circuit_breaker_state",
           legend="{{provider}}"),
     panel("Worker container uptime", 'time() - process_start_time_seconds{job="agent-worker"}', "s",
           legend="{{instance}}"),

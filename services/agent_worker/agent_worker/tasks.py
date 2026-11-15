@@ -1,59 +1,105 @@
-"""PLACEHOLDER task (Member 1 skeleton; Member 3 replaces it with the LangGraph agents).
+"""RQ job entry point (contract A.6): agent_worker.tasks.run_classification(run_id, correlation_id).
 
-Honours the queue contract (A.6) so the platform can be tested end to end before the agents exist:
-loads the run, marks it running, writes one run_steps row, then stores an escalated Result.
-It never claims a classification, so it always escalates to specialist review.
+Loads the request from Postgres, marks the run running, runs the agent graph (every step is written
+to run_steps as it happens), then stores the Result. Any crash stores a failed, escalated Result:
+an unfinished run is never returned as a confident answer (A5).
 """
+from __future__ import annotations
+
 import logging
-import os
 import time
 
 import psycopg
-from prometheus_client import Counter, Histogram
 from psycopg.types.json import Jsonb
+from redis import Redis
 
+from agent_worker import config, graph, prompts, telemetry
+from agent_worker.llm import LLMClient
+from agent_worker.metrics import run_e2e, runs_total
+from agent_worker.recorder import Budget, StepRecorder, pg_sink
+from agent_worker.state import RunContext
+from agent_worker.tools import RetrieverTools
 from contracts import Escalation, Result, Usage
 from ecs_common import bind
 
-log = logging.getLogger("agent_worker")
-runs_total = Counter("ecs_agent_runs_total", "Agent runs", ["agent", "outcome"])
-run_e2e = Histogram("ecs_run_e2e_seconds", "Run time from submission to final result",
-                    buckets=(1, 2, 5, 10, 20, 30, 45, 60, 90, 120, 180))
+log = logging.getLogger("agent_worker.tasks")
+_clients: dict = {}   # per-process HTTP/Redis clients (connection pools); no run state lives here
+
+
+def _shared(settings):
+    if not _clients:
+        import httpx
+        _clients["redis"] = Redis.from_url(settings.redis_url)
+        _clients["http"] = httpx.Client()
+    return _clients["redis"], _clients["http"]
+
+
+def build_context(run_id: str, correlation_id: str, request: dict, prompt_version: str, sink) -> RunContext:
+    s = config.load()
+    redis, http = _shared(s)
+    return RunContext(run_id=run_id, request=request, settings=s,
+                      llm=LLMClient(s, redis, http=http),
+                      tools=RetrieverTools(s.retriever_url, correlation_id, http=http),
+                      recorder=StepRecorder(run_id, sink),
+                      budget=Budget(s.max_steps, s.max_tool_calls, s.max_wall_s),
+                      prompts=prompts.resolve(prompt_version), prompt_version=prompt_version)
+
+
+def _failed_result(run_id: str, prompt_version: str, reason: str, steps: int = 0, latency_ms: int = 0) -> Result:
+    return Result(run_id=run_id, status="failed", route="specialist-classification-review",
+                  route_basis=f"The run failed before a verified answer ({reason}). Nothing is proposed.",
+                  escalation=Escalation(escalated=True, reason=reason), prompt_version=prompt_version,
+                  usage=Usage(steps=steps, latency_ms=latency_ms))
 
 
 def run_classification(run_id: str, correlation_id: str, **_: object) -> str:
-    with bind(run_id=run_id, correlation_id=correlation_id, agent="placeholder"), \
-            psycopg.connect(os.environ["POSTGRES_DSN"], autocommit=True) as conn:
-        row = conn.execute("SELECT created_at, prompt_version FROM runs WHERE run_id=%s", (run_id,)).fetchone()
+    s = config.load()
+    with bind(run_id=run_id, correlation_id=correlation_id), \
+            psycopg.connect(s.postgres_dsn, autocommit=True) as conn:
+        row = conn.execute("SELECT request, prompt_version, created_at, trace_context, status FROM runs "
+                           "WHERE run_id=%s", (run_id,)).fetchone()
         if row is None:
-            log.error("run not found")
+            log.error("run not found", extra={"event": "run_missing"})
             return "missing"
-        created_at, prompt_version = row
+        request, prompt_version, created_at, trace_context, status = row
+        prompt_version = prompt_version or s.prompt_version
+        if status != "queued":   # duplicate delivery, or the watchdog already gave up on it
+            log.warning("run is %s, not queued; skipping", status, extra={"event": "run_skipped"})
+            return status
         conn.execute("UPDATE runs SET status='running', updated_at=now() WHERE run_id=%s", (run_id,))
-        log.info("placeholder run started", extra={"event": "run_started"})
-        start = time.perf_counter()
-        time.sleep(float(os.environ.get("PLACEHOLDER_DELAY_S", "1.0")))
-        latency_ms = int((time.perf_counter() - start) * 1000)
-        conn.execute(
-            "INSERT INTO run_steps (run_id, step_no, agent, kind, name, input, output, status, latency_ms, "
-            "prompt_tokens, completion_tokens, cost_usd, prompt_version) "
-            "VALUES (%s, 1, 'placeholder', 'route', 'placeholder_escalate', %s, %s, 'ok', %s, 0, 0, 0, %s)",
-            (run_id, Jsonb({}), Jsonb({"route": "specialist-classification-review"}), latency_ms, prompt_version),
-        )
-        result = Result(
-            run_id=run_id,
-            status="escalated",
-            route="specialist-classification-review",
-            route_basis="Skeleton placeholder: the agent system is not built yet, so every case is escalated.",
-            escalation=Escalation(escalated=True, reason="agent system not yet implemented"),
-            prompt_version=prompt_version or "none",
-            usage=Usage(steps=1, latency_ms=latency_ms),
-        )
-        conn.execute(
-            "UPDATE runs SET status=%s, result=%s, updated_at=now() WHERE run_id=%s",
-            (result.status, Jsonb(result.model_dump(mode="json")), run_id),
-        )
-        runs_total.labels(agent="placeholder", outcome="escalated").inc()
-        run_e2e.observe(float(conn.execute("SELECT extract(epoch FROM now() - %s)", (created_at,)).fetchone()[0]))
-        log.info("placeholder run finished", extra={"event": "run_finished"})
+        log.info("run started", extra={"event": "run_started", "prompt_version": prompt_version})
+
+        ctx = None
+        with telemetry.tracer.start_as_current_span("run_classification",
+                                                    context=telemetry.extract(trace_context)) as span:
+            span.set_attribute("run_id", run_id)
+            span.set_attribute("correlation_id", correlation_id)
+            span.set_attribute("prompt_version", prompt_version)
+            try:
+                ctx = build_context(run_id, correlation_id, request, prompt_version, pg_sink(conn))
+                result = graph.run(ctx)
+            except Exception as exc:  # noqa: BLE001
+                log.exception("run crashed", extra={"event": "run_crashed"})
+                steps = len(ctx.recorder.rows) if ctx else 0
+                result = _failed_result(run_id, prompt_version, f"{type(exc).__name__}: {exc}"[:300], steps,
+                                        ctx.recorder.latency_ms() if ctx else 0)
+                runs_total.labels(agent="run", outcome="failed").inc()
+            span.set_attribute("status", result.status)
+            span.set_attribute("route", result.route)
+
+        conn.execute("UPDATE runs SET status=%s, result=%s, error=%s, updated_at=now() "
+                     "WHERE run_id=%s AND status='running'",
+                     (result.status, Jsonb(result.model_dump(mode="json")),
+                      result.escalation.reason if result.status == "failed" else None, run_id))
+        e2e = float(conn.execute("SELECT extract(epoch FROM now() - %s)", (created_at,)).fetchone()[0])
+        run_e2e.observe(e2e)
+        log.info("run finished: %s / %s", result.status, result.route,
+                 extra={"event": "run_finished", "status": result.status, "route": result.route,
+                        "e2e_s": round(e2e, 2), "cost_usd": result.usage.cost_usd})
         return result.status
+
+
+if __name__ == "__main__":  # handy for a manual check: python -m agent_worker.tasks <run_id>
+    import sys
+    t = time.time()
+    print(run_classification(sys.argv[1], "manual"), f"{time.time() - t:.1f}s")

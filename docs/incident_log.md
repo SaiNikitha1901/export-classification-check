@@ -51,3 +51,17 @@ Real failures from development only. Add an entry when something actually breaks
 - **Found:** (a) the 8-digit code counted as a "word", but the corpus prints codes as "9617 00 11", so the word never matched and pushed correct claims under the 60% threshold. (b) The splitter only split before a capital letter. (c) 23 of 25 runs were escalations with no citations, whose summaries are process statements ("No verified classification. The agent hit a loop limit…"). Scored against no passages, they were always 0.
 - **Fix:** (a) codes are checked separately (spacing-insensitive) and no longer counted as words. (b) Split on every `;`. (c) Groundedness is now *not applicable* to runs without citations and is reported with its coverage (`groundedness_runs`); the definition is in `eval/METRICS.md`. A `--rescore` mode re-scores finished batches from their stored traces, so every compared batch uses identical metric code.
 - **Lesson:** test the metric code like product code, and sanity-check every metric's first real number before believing it.
+
+### 8. Real retriever exited on start: an inline comment became a setting's value (2026-11-15)
+- **Seen:** PR #3's `integration` CI job failed: the retriever exited with `FORCE_SEARCH_MODE must be dense, keyword or hybrid, not '# leave empty; "dense" only for the L3 before/after batch'`.
+- **Found:** `docker compose config` showed `FORCE_SEARCH_MODE` and `LLM_FORCE_FAIL` set to their comment text.
+- **Root cause:** in PR #2, Member 1 wrote empty values with an inline comment (`X=    # note`). Compose reads that as the value `# note`, not as empty. `main`'s CI missed it because the placeholder services never read those settings.
+- **Fix:** PR #4. The comments moved to their own lines, and `scripts/check_no_secrets.sh` (run in CI) now rejects the pattern.
+- **Prevention:** that CI check, and testing a feature branch merged with `main` before relying on `main`'s green CI.
+
+### 9. Every real-model run degraded: the free tier's 8k tokens/minute tripped the circuit breaker (2026-11-15)
+- **Seen:** the first runs on Groq `gpt-oss-120b` (decision D2) all came back `degraded`. Worker traces showed `HTTP 429` on the third classifier turn, then `primary: circuit open`.
+- **Found:** Groq's response headers: `x-ratelimit-limit-tokens: 8000` per minute and `retry-after: 9`. Each classifier turn re-sends the conversation (~3.3k tokens), so three turns use up the minute.
+- **Root cause:** the LLM client treated 429 like an outage. It retried after 0.5–8 s (ignoring Retry-After) and counted every 429 as a breaker failure, so the breaker opened after five.
+- **Fix:** 429 now waits for the provider's Retry-After within the run's time budget and does not count against the breaker (contract #16). The time limits were raised to fit 2–4 minute real runs.
+- **Also found in the same test:** the verifier rejected a *correct* answer because the model quoted a passage's title and shortened a long note with "...". Quotes from titles, and exact fragments joined by "...", are now accepted. Invented or out-of-order fragments are still rejected (tests in `test_guardrails_verifier.py`).

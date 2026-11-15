@@ -1,5 +1,18 @@
-# PLACEHOLDER requirements - Member 3 replaces with the real agent stack (LangGraph etc.)
+# torch (CPU-only wheel) is installed separately in the Dockerfile, before these.
 rq==2.0.0
 redis==5.2.1
 psycopg[binary]==3.2.3
 prometheus-client==0.21.1
+httpx==0.28.1
+langgraph==1.2.16
+PyYAML==6.0.2
+opentelemetry-sdk==1.29.0
+opentelemetry-exporter-otlp-proto-grpc==1.29.0
+detoxify==0.5.2
+transformers==4.46.3
+sentencepiece==0.2.0
+# tests (run inside the container: docker compose run --rm agent-worker python -m pytest -q tests)
+pytest==8.3.4
+fastapi==0.115.6
+uvicorn==0.32.1
+fakeredis==2.26.2

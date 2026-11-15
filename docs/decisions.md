@@ -50,7 +50,7 @@ To be confirmed with a live run of S01/S02 + the out-of-scope cases before the e
 | 12 | §4.1 needs capacity | accepted, see D1 |
 | 13 | `EXP-GN-1` as the export-policy citation when no Schedule 2 row exists | **accepted**; the verifier must accept it |
 | 14 | M2 env vars | accepted, in `.env.example` (#2, #4) |
-| 15 | new retriever endpoint for notes in other sections that exclude a heading's chapter (e.g. `HDG-9617` → `SEC-XV-NOTE-1`) | **accepted**: M2 builds it, M3 calls it so the flask run cites the exclusion |
+| 15 | new retriever endpoint for notes in other sections that exclude a heading's chapter (e.g. `HDG-9617` → `SEC-XV-NOTE-1`) | **superseded (2026-11-15):** the classifier now does this lookup in code with the existing tools (`search_corpus` + `get_applicable_notes`), so no new endpoint is needed |
 
 ## D4. Definition of done
 

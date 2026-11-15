@@ -1,0 +1,12 @@
+# DEV ONLY (Member 3): serve tests/fake_retriever.py as the `retriever` service, so the whole thin slice
+# (API -> queue -> worker -> retriever -> LLM) runs before Member 2's retriever is merged.
+#   docker compose -f docker-compose.yml -f services/agent_worker/tests/compose.fake-retriever.yml up -d --build
+services:
+  retriever:
+    build: { context: ., dockerfile: services/agent_worker/Dockerfile }
+    command: ["python", "-m", "uvicorn", "--app-dir", "/srv/tests", "fake_retriever:app", "--host", "0.0.0.0", "--port", "8001"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health', timeout=3)"]
+      interval: 5s
+      timeout: 4s
+      retries: 20
