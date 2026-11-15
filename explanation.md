@@ -23,7 +23,13 @@ I built the "body" of the system: everything around the agents. My part takes th
   - **Jaeger** (a tool that shows the path of one request through all services, like a timeline).
   - **docker-exporter** (`ops/docker_exporter/exporter.py`). My own small program that measures the CPU, memory and uptime of each container.
 - **Load test kit** (`loadtest/`). A tool called Locust pretends to be many users at the same time. It measures how long a full run takes. Before testing, I wrote down the target in `SLO.md` (a promise: 95% of runs finish within 60 seconds with 10 users).
-- **Documents**: README, architecture, design decisions, data contract, runbook (what to do when things break), incident log (real problems we had), demo script.
+- **Documents**: README, architecture, design decisions, data contract, runbook (what to do when things break), incident log (real problems we had), demo script, and the final report (`docs/report/report.md`).
+- **Team decisions** (`docs/decisions.md`). As scrum master I made the final calls: the reference answer for the vacuum flask, which AI model we use (Groq), and which contract changes we accept.
+- **Fixes so the agents work on a real AI model.** When I tested Member 3's agents on Groq, every run failed. I found four reasons and fixed them:
+  1. Groq said "too many tokens, wait 9 seconds" (HTTP 429). Our code treated that as "Groq is broken" and gave up. Now it waits as long as Groq asks.
+  2. The checker (verifier) rejected correct quotes because of small formatting differences. Now it accepts exact text from a title, or exact pieces joined by "...". Made-up text is still rejected.
+  3. The note that removes steel flasks from Chapter 73 (Section XV Note 1(m)) is now looked up by code, so the model cannot forget it.
+  4. Each step sent the same passages again and again, which used up the daily token allowance. Now a passage is sent only once per attempt. This cut tokens per step by about half.
 
 ### 3. How a request moves through my part
 1. The user sends a product description to `POST /runs`.
@@ -66,9 +72,10 @@ On my laptop, port 3000 was busy, so Grafana is at http://localhost:3001 (set in
 - **D3**: 10 services, one `docker compose up`, health checks. Boundaries explained in `docs/architecture.md`.
 - **D4**: no keys or model names in code. Everything comes from `.env`. `scripts/check_no_secrets.sh` checks this.
 - **D5**: JSON logs with a correlation ID, Jaeger traces, Prometheus, Grafana, and run rebuild with `/trace`.
-- **D6**: SLO written first. Locust kit ready. *Real numbers come after the agents are merged.*
-- **D7**: rate limiting and run cache. *The before/after measurement comes after the agents are merged.*
-- **D8**: runbook with 2 failure modes, and an incident log with 3 real problems.
+- **D6**: SLO written first (60 s for 95% of runs at 10 users), then measured with Locust and the stub. Result: with 1 worker the target already fails at 5 users. With 3 workers it fails at 10 users (95% of runs within 71 s, not 60 s). With 5 workers it is met (46 s).
+- **A7 (measured)**: more workers really help. 1 worker finishes about 0.05 runs per second, 3 workers 0.15 (3 times more), 5 workers 0.24 (almost 5 times more).
+- **D7**: rate limiting and run cache. Measured: with the cache on, 95% of runs finish within 17 s instead of 43 s, and a cached answer costs $0. The rate limit even stopped one fast test user who sent more than 20 requests in a minute.
+- **D8**: runbook with 2 failure modes, and an incident log with 10 real problems.
 - **L6**: feedback endpoint and summary. Grafana panel for quality over time.
 
 ### 7. Viva questions
@@ -80,10 +87,14 @@ On my laptop, port 3000 was busy, so Grafana is at http://localhost:3001 (set in
 6. **When is the cache not used?** When the prompt version or the document index changes, and for answers that were escalated, degraded or failed.
 7. **What is p95?** The time within which 95 out of 100 runs finish. We fixed our target (60 s) before testing, and git history proves it.
 8. **What if a worker dies in the middle of a run?** The watchdog sees that the job is dead and marks the run "failed". The user never gets a half answer.
+9. **Why Groq and not a local model or Gemini?** The local 7B model was too weak and escalated almost everything. Gemini's free plan allows only about 20 requests a day. Groq's `gpt-oss` models call tools reliably and are free.
+10. **What is the bottleneck?** The number of workers. Each worker does one run at a time and spends almost all of it waiting for the AI model (under 1% CPU). So the runs wait in the line. More workers fix it. In real use, the next limit is the AI provider's token limit, not our system.
 
 ### 8. What did not work / limits
 - **cAdvisor** (a common tool for container CPU and memory) could not see containers on Docker Desktop for Mac. I wrote my own small exporter instead (incident 2).
-- The real load test numbers and the cache before/after numbers are **not measured yet**. The agents are still a placeholder that always escalates, so measuring now would mean nothing.
+- My first load test gave wrong numbers. Runs left over from one step were still waiting when the next step began. I fixed the test so each step starts with an empty queue (incident 10).
+- My run cache once gave an old stub answer to a real-model run, because the cache did not look at which model was used. Now it does (PR #6).
+- Groq's free plan gives only 200,000 tokens a day per model, which is about 8–15 runs. So we test the real model on a smaller set of cases each day.
 - Callbacks have no signing or allow-list yet. That is fine for a local project, but not safe on the internet.
 - Cross-field checks (like "shares must add up to 100") run only after each field is valid on its own. So a user may fix one error and then see the next one.
 

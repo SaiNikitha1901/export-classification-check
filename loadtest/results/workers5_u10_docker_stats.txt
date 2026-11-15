@@ -1,0 +1,15 @@
+ecsload-locust-run-f7dfd970ad88 2.06% 38.02MiB / 7.75GiB
+ecsload-agent-worker-5 0.65% 328.8MiB / 7.75GiB
+ecsload-agent-worker-4 0.68% 319.4MiB / 7.75GiB
+ecsload-agent-worker-3 0.14% 324.3MiB / 7.75GiB
+ecsload-agent-worker-2 0.15% 329.5MiB / 7.75GiB
+ecsload-api-1 2.94% 69.16MiB / 7.75GiB
+ecsload-agent-worker-1 0.12% 332.2MiB / 7.75GiB
+ecsload-grafana-1 0.07% 85.98MiB / 7.75GiB
+ecsload-retriever-1 1.05% 380.8MiB / 7.75GiB
+ecsload-jaeger-1 0.04% 519.9MiB / 7.75GiB
+ecsload-postgres-1 0.69% 81.98MiB / 7.75GiB
+ecsload-llm-stub-1 24.37% 37.37MiB / 7.75GiB
+ecsload-prometheus-1 0.26% 68.53MiB / 7.75GiB
+ecsload-redis-1 0.59% 16.94MiB / 7.75GiB
+ecsload-docker-exporter-1 0.93% 14.57MiB / 7.75GiB
