@@ -46,9 +46,18 @@ So classifier cost grows roughly with the **square** of the number of turns. Sec
 2. **Cache retrievals.** Member 2's D7 retrieval cache saves latency, but it does not save tokens.
 3. **Whole-run cache.** Member 1's D7 run cache makes a repeated request cost $0.
 4. **Trim tool results.** Send the model only the passage fields it needs (already done: `tools.compact`).
-5. **Drop already-read passages** from later turns. Not done: quotes must still be copyable.
+5. **Drop already-read passages** from later turns. **Done (2026-11-15, PR #7):** within one classifier attempt, a passage that was already shown is re-sent only as `{passage_id, clause_id, already_shown_above}`. The full text stays earlier in the same conversation, so quotes are still copyable. Duplicate fields (chapter, heading, a heading's title) are dropped, and search returns 6 passages instead of 8.
 
-## Not yet measured: a real provider
-The stub counts `len(messages)/4` and does **not** count the tool schemas. A real provider also bills the five tool definitions plus the submit schema on every classifier turn, roughly 600–800 extra prompt tokens per turn. Expect a real run to cost **about 1.5–2× the stub figure**, so roughly $1.5–2 per 100 runs at the notional prices.
+## Measured: a real provider (Groq free tier, 2026-11-15)
+Same SQL, notional prices `LLM_PRICE_IN_PER_1K=0.00059`, `LLM_PRICE_OUT_PER_1K=0.00079`.
 
-**To do:** replace this section with measured numbers once a real key is in `.env`. Use the same SQL, after running the eval set (Member 2) with `classifier@v1` and `classifier@v2`.
+| Run | Model | Prompt + completion tokens | Cost | Time |
+|---|---|---|---|---|
+| §4.1 exact sentence (after the token cut), verified first attempt | `openai/gpt-oss-20b` | 21,013 + 4,049 | $0.0156 | 101 s |
+| §4.1 + 500 ml (before all fixes), escalated at the 8-turn loop limit | `openai/gpt-oss-120b` | 53,569 + 4,469 | $0.0351 | 326 s |
+| Laptop (before the token cut), correctly escalated as out of scope | `openai/gpt-oss-120b` | 34,005 + 3,170 | $0.0226 | 187 s |
+
+- **Per-turn prompt tokens on the same flask case: about 5.6k before the cut, ≤ 2.6k after.**
+- One verified real run is about **$1.56 per 100 runs** at the notional prices, close to the 1.5–2× of the stub figure predicted above.
+- **On a free tier the binding limit is tokens per day, not money:** Groq allows 200,000 tokens/day per model, so 8–15 runs per model per day. That's why decision D2 pairs two models (separate quotas) and why the whole-run cache (D7) matters.
+- **[PENDING: Groq run 2026-11-16]** Cost per 100 runs over the Groq evaluation subset, using the SQL above.

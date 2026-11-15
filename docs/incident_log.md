@@ -65,3 +65,9 @@ Real failures from development only. Add an entry when something actually breaks
 - **Root cause:** the LLM client treated 429 like an outage. It retried after 0.5–8 s (ignoring Retry-After) and counted every 429 as a breaker failure, so the breaker opened after five.
 - **Fix:** 429 now waits for the provider's Retry-After within the run's time budget and does not count against the breaker (contract #16). The time limits were raised to fit 2–4 minute real runs.
 - **Also found in the same test:** the verifier rejected a *correct* answer because the model quoted a passage's title and shortened a long note with "...". Quotes from titles, and exact fragments joined by "...", are now accepted. Invented or out-of-order fragments are still rejected (tests in `test_guardrails_verifier.py`).
+
+### 10. The first load sweep reported misleading numbers: a backlog carried between steps (2026-11-15)
+- **Seen:** in the 1-worker sweep, the 20- and 40-user steps reported **no** finished runs at all, and the summary silently left them out.
+- **Found:** `/admin/stats` showed the queue still holding runs from the 10-user step when the 20-user step started, so the new runs queued behind them and none finished inside the 3-minute window. Runs still in progress when a step ended were simply not counted, which flatters p95 (only the fast runs were measured).
+- **Root cause:** a test-method bug. The steps weren't independent, and unfinished runs were treated as "not measured" instead of "missed the SLO".
+- **Fix:** `loadtest/sweep.sh` waits for an empty queue and no running runs before each step, and uses Locust `--stop-timeout` so in-flight runs finish. `summarize.py` counts runs that were submitted but never finished as SLO failures. The sweep was re-run from scratch.
