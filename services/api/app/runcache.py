@@ -1,8 +1,8 @@
 """Whole-run cache (D7).
 
 A run is expensive (several LLM calls). The same product description is often re-checked,
-so a completed result is reused when the normalised request, the prompt version and the
-index build are all identical. Rebuilding the index or changing the prompt changes the key,
+so a completed result is reused when the normalised request, the prompt version, the index
+build and the LLM (endpoint + model) are all identical. Changing any of them changes the key,
 so stale answers are never served. Only 'completed' runs are cached, never degraded/failed.
 """
 from __future__ import annotations
@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 import re
 import time
 
@@ -52,6 +53,8 @@ def cache_key(req: ProductRequest, prompt_version: str, index_built_at: str) -> 
         "h": req.declared_hs_code,
         "p": prompt_version,
         "i": index_built_at,
+        # A cached answer must never cross models (e.g. stub -> real provider).
+        "llm": [os.environ.get("LLM_BASE_URL", ""), os.environ.get("LLM_MODEL", "")],
     }
     digest = hashlib.sha256(json.dumps(basis, sort_keys=True).encode()).hexdigest()
     return f"runcache:{digest}"
