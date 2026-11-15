@@ -32,13 +32,19 @@ Then open:
 
 In the web client, click **Load demo case (§4.1)** → **Submit**.
 
-### Using a real LLM
-```bash
-cp .env.example .env
-# edit .env: LLM_BASE_URL, LLM_API_KEY, LLM_MODEL (any OpenAI-compatible free tier)
-docker compose up -d
+### Using a real LLM (what we demo on: Groq, decision D2 in `docs/decisions.md`)
+Create a free key at https://console.groq.com, then put these lines in a file called `.env` next to `docker-compose.yml`:
 ```
-`.env` is git-ignored. Never commit keys.
+LLM_BASE_URL=https://api.groq.com/openai/v1
+LLM_API_KEY=<your key>
+LLM_MODEL=openai/gpt-oss-120b
+LLM_FALLBACK_BASE_URL=https://api.groq.com/openai/v1
+LLM_FALLBACK_API_KEY=<your key>
+LLM_FALLBACK_MODEL=openai/gpt-oss-20b
+```
+Then `docker compose up -d`. `.env` is git-ignored, so never commit keys. Any other OpenAI-compatible endpoint works the same way.
+
+**Free-tier expectations:** Groq allows 8,000 tokens/minute and 200,000 tokens/day per model. A run uses about 10–25k tokens, so a real run takes **2–4 minutes**: the client waits for the provider's Retry-After instead of failing. Each model handles about 8–15 runs a day. When both models' daily quota is spent, runs come back `degraded` (an honest "model unavailable" result, never a guess).
 
 ### From the command line
 ```bash
@@ -74,7 +80,23 @@ bash scripts/check_no_secrets.sh                              # D4 check
 docker compose logs -f api agent-worker                       # JSON logs (filter by run_id / correlation_id)
 docker compose down -v                                        # stop and delete all data
 ```
-Ingestion (Member 2) and the evaluation batch (Member 2) are documented in their folders once merged.
+**Corpus and index (D2).** The retriever builds its index on first start (about 50 s). To rebuild or inspect it:
+```bash
+docker compose run --rm retriever python -m retriever.ingest build     # idempotent: a second run embeds 0 chunks
+docker compose run --rm retriever python -m retriever.ingest status
+docker compose run --rm retriever python -m retriever.ingest reembed --model <sentence-transformers model>
+curl -s localhost:8001/index/info                                      # built_at, sources + sha256, chunk count
+```
+Design: [`docs/retrieval_design.md`](docs/retrieval_design.md). Sources: [`corpus/SOURCES.md`](corpus/SOURCES.md).
+
+**Evaluation batch (L3, L2).** 28 scenarios in `eval/scenarios.jsonl`, run through the public API:
+```bash
+docker compose run --rm retriever python eval/run_eval.py --label my-run          # all scenarios
+docker compose run --rm retriever python eval/run_eval.py --label quick --only S01,S02,S22
+```
+Results go to `eval/results/<timestamp>_<label>/`. How each metric is computed: [`eval/METRICS.md`](eval/METRICS.md). Before/after: [`eval/BEFORE_AFTER.md`](eval/BEFORE_AFTER.md). Prompt v1 vs v2: [`eval/PROMPT_COMPARISON.md`](eval/PROMPT_COMPARISON.md).
+
+**Agent tests (A1–A5, L4).** `docker compose run --rm agent-worker python -m pytest -q tests`. Agent design: [`docs/agent_design.md`](docs/agent_design.md). Demo steps for all 10 items: [`docs/demo_script.md`](docs/demo_script.md).
 
 ## Troubleshooting
 
@@ -83,7 +105,8 @@ Ingestion (Member 2) and the evaluation batch (Member 2) are documented in their
 | `ports are not available … address already in use` | Another app uses that port. Add e.g. `GRAFANA_HOST_PORT=3001` or `API_HOST_PORT=8080` to `.env` (all names are listed at the top of `.env.example`) |
 | `api` shows `"status":"degraded"` in `/health` | The retriever is not ready (it may still be building its index). See the runbook |
 | Runs stay `queued` | No worker running: `docker compose ps agent-worker`, then `docker compose logs agent-worker` |
-| Runs come back `degraded` | The LLM provider is failing and the circuit breaker is open. See the runbook |
+| Runs come back `degraded` | The LLM provider is failing or its daily quota is spent (Groq: 200k tokens/day/model). See the runbook |
+| Runs take 2–4 minutes | Normal on a free tier: the client waits out the per-minute token limit |
 
 More: [`docs/runbook.md`](docs/runbook.md) · [`docs/incident_log.md`](docs/incident_log.md)
 
@@ -103,5 +126,5 @@ corpus/raw              source PDFs (M2)                    docs/               
 | Member | Area |
 |---|---|
 | Member 1: Sai Nikitha Perumalla (PES2UG24AM142) | Platform, API & Ops |
-| Member 2 | Corpus, Retrieval & Evaluation |
-| Member 3 | Agents & LLM |
+| Member 2 (satwik-0110) | Corpus, Retrieval & Evaluation |
+| Member 3 (Sanshray10) | Agents & LLM |

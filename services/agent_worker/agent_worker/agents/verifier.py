@@ -23,6 +23,11 @@ MAX_ATTEMPTS = 3   # first answer + 2 retries, then escalate
 VALID_GRI = {"GRI-1", "GRI-2(a)", "GRI-2(b)", "GRI-3(a)", "GRI-3(b)", "GRI-3(c)", "GRI-4", "GRI-5(a)", "GRI-5(b)",
              "GRI-6", "GRI-2", "GRI-3", "GRI-5"}
 IN_SCOPE = ("73", "96")
+RULE_CLAIMS = {
+    "GRI-1": "Rule GRI-1 says classification is determined by the terms of the headings and any relative "
+             "Section or Chapter Notes.",
+    "GRI-6": "Rule GRI-6 says classification at subheading level follows the terms of the subheadings.",
+}
 _STOP = {"with", "and", "the", "for", "made", "other", "outer", "inner", "body", "moulded", "molded", "plastic",
          "plastics", "steel", "stainless", "iron", "metal", "base", "article", "articles", "part", "parts"}
 
@@ -173,10 +178,16 @@ def run(state: dict, ctx) -> dict:
 
 
 def _entailment(draft: Draft, ctx) -> list[str]:
+    # Each claim states what the cited text itself must say. ("Rule GRI-1 decides the heading" was
+    # rejected by careful models: GRI 1's text names no heading, it says the heading terms and notes decide.)
     claims = [f"Heading {draft.heading} covers the article '{draft.article}'.",
-              f"Rule {draft.decided_by} decides the heading."]
+              RULE_CLAIMS.get(draft.decided_by, f"Rule {draft.decided_by} is the rule that decides between the candidate headings.")]
     if draft.proposed_hs_code:
         claims.append(f"Tariff line {draft.proposed_hs_code} covers the article '{draft.article}'.")
+    for c in draft.citations:
+        if c.clause_id.startswith("SEC-") and draft.heading[:2] == "96":
+            claims.append(f"{c.clause_id} excludes articles of Chapter 96 from that Section.")
+            break
     seen, passages = set(), []
     for c in draft.citations:
         if c.passage_id not in seen:
