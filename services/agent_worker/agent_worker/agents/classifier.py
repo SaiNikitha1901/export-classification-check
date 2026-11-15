@@ -63,6 +63,7 @@ def _already_retrieved(state: dict, ctx) -> str:
 
 def run(state: dict, ctx) -> dict:
     attempt = int(state.get("attempt") or 0)
+    ctx.shown_ids = set()   # a new attempt starts a new conversation: passages must be shown in full again
     p = ctx.prompts["classifier"]
     user = prompts.render(p["user"], strategy=STRATEGIES[min(attempt, len(STRATEGIES) - 1)],
                           feedback=_feedback(state, ctx),

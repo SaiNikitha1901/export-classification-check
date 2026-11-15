@@ -53,7 +53,7 @@ class RetrieverTools:
         return list(data.get("passages") or [])
 
     def search_corpus(self, query: str, kinds: list[str] | None = None, chapters: list[str] | None = None,
-                      mode: str = "hybrid", k: int = 8) -> list[dict]:
+                      mode: str = "hybrid", k: int = 6) -> list[dict]:
         body: dict[str, Any] = {"query": query, "k": max(1, min(int(k), 12)), "mode": mode}
         if kinds:
             body["kinds"] = kinds
@@ -110,12 +110,25 @@ def submit_spec(output_schema: dict) -> dict:
                output_schema["properties"], output_schema["required"])
 
 
-def compact(passages: list[dict], max_chars: int = 3000) -> list[dict]:
+def compact(passages: list[dict], max_chars: int = 3000, shown: set | None = None) -> list[dict]:
     """What the model sees of a passage. Quotes taken from this text are substrings of the full text.
-    Notes are long and the decisive exclusion is often at the end (Section XV Note 1(m)), so keep 3000 chars."""
-    return [{"passage_id": p.get("passage_id"), "clause_id": p.get("clause_id"), "kind": p.get("kind"),
-             "chapter": p.get("chapter"), "heading": p.get("heading"), "title": p.get("title"),
-             "text": (p.get("text") or "")[:max_chars]} for p in passages]
+    Token budget (free tiers allow ~200k tokens/day): every turn re-sends the whole conversation, so
+    a passage already shown in this attempt is sent again only as a reference, and fields that repeat
+    the clause id or the text (chapter, heading, a heading's title) are left out."""
+    out = []
+    for p in passages:
+        pid = p.get("passage_id")
+        if shown is not None and pid in shown:
+            out.append({"passage_id": pid, "clause_id": p.get("clause_id"), "already_shown_above": True})
+            continue
+        if shown is not None:
+            shown.add(pid)
+        row = {"passage_id": pid, "clause_id": p.get("clause_id"), "kind": p.get("kind"),
+               "text": (p.get("text") or "")[:max_chars]}
+        if p.get("kind") not in ("heading", "tariff_line") and p.get("title"):
+            row["title"] = p.get("title")
+        out.append(row)
+    return out
 
 
 def execute(ctx, agent: str, allowed: set[str], name: str, args: dict) -> tuple[Any, str]:
@@ -149,7 +162,7 @@ def execute(ctx, agent: str, allowed: set[str], name: str, args: dict) -> tuple[
         ctx.tool_log.append({"agent": agent, "tool": name, "args": args,
                              "clause_ids": [p.get("clause_id") for p in out]})
         rec["output"] = {"passages": out}   # full passages: the run can be rebuilt from run_steps (D5)
-        result = compact(out)
+        result = compact(out, shown=getattr(ctx, "shown_ids", None))
         return (result if result else {"result": "no passages found"}), "ok"
 
 

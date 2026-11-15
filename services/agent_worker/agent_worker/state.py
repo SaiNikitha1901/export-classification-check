@@ -117,6 +117,7 @@ class RunContext:
     prompt_version: str
     evidence: dict[str, dict] = field(default_factory=dict)   # passage_id -> passage, everything retrieved
     tool_log: list[dict] = field(default_factory=list)        # ordered tool calls (for the GRI-order check)
+    shown_ids: set = field(default_factory=set)               # passages already sent to the model this attempt
 
     def request_view(self) -> dict:
         from agent_worker.guardrails import delimit
