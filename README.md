@@ -33,15 +33,7 @@ Then open:
 In the web client, click **Load demo case (§4.1)** → **Submit**.
 
 ### Using a real LLM (what we demo on: Groq, decision D2 in `docs/decisions.md`)
-Create a free key at https://console.groq.com, then put these lines in a file called `.env` next to `docker-compose.yml`:
-```
-LLM_BASE_URL=https://api.groq.com/openai/v1
-LLM_API_KEY=<your key>
-LLM_MODEL=openai/gpt-oss-120b
-LLM_FALLBACK_BASE_URL=https://api.groq.com/openai/v1
-LLM_FALLBACK_API_KEY=<your key>
-LLM_FALLBACK_MODEL=openai/gpt-oss-20b
-```
+Create a free key on Groq's console, then create a file called `.env` next to `docker-compose.yml` with the six `LLM_*` lines from **decision D2 in [`docs/decisions.md`](docs/decisions.md)** (base URL, key, model, and the same three for the fallback), with your key filled in.
 Then `docker compose up -d`. `.env` is git-ignored, so never commit keys. Any other OpenAI-compatible endpoint works the same way.
 
 **Free-tier expectations:** Groq allows 8,000 tokens/minute and 200,000 tokens/day per model. A run uses about 10–25k tokens, so a real run takes **2–4 minutes**: the client waits for the provider's Retry-After instead of failing. Each model handles about 8–15 runs a day. When both models' daily quota is spent, runs come back `degraded` (an honest "model unavailable" result, never a guess).
