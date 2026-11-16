@@ -37,6 +37,7 @@ We built a **multi-agent service** that takes a product description, validates i
 | policy_route | export policy and route, decided in code (F6, F7) | `get_export_policy` |
 
 **The §5 loop, step by step:**
+
 1. The classifier retrieves what appears to apply.
 2. **A provision that modifies it is looked up in code:** for a Chapter 96 heading on an iron or steel article, the Chapter 73 candidate's applicable notes are fetched and the excluding item is cited (Section XV Note 1(m)).
 3. The classifier searches again with queries from what it has read (keyword search for the article's name).
@@ -62,6 +63,7 @@ All cases are tested (`docs/agent_design.md` §4).
 **Reliability (A5):** every LLM call has a timeout and bounded retry with exponential backoff and jitter. There is a **circuit breaker per provider, with its state in Redis** so every worker replica shares it. The fallback path is primary model → fallback model → **degraded retrieval-only result** (candidate headings, no code, specialist route). HTTP 429 is treated as a rate limit, not an outage: the client waits for the provider's `Retry-After` (incident 9). A chaos switch (`redis-cli SET ecs:chaos:llm_fail all`) demonstrates the breaker. **The A.5 invariant**, `clear-for-filing` only when verified and completed, is enforced in the contract model, the router and the result builder.
 
 **Guardrails (L4):**
+
 - Injection: a heuristic scan of every free-text field, plus delimiters around customer data. A hit escalates the run, and no model ever sees the text.
 - Toxicity: `detoxify` runs on input and output.
 - Output filter: removes claims of filing, finality or duty amounts, and always adds the disclaimer. Tools are read-only.
@@ -86,6 +88,7 @@ Ten services start with one `docker compose up` from a clean clone (CI checks th
 **Async execution (A4):** `POST /runs` validates, creates the run and enqueues an RQ job by name, then returns **202 with a run ID**. Clients **poll** `GET /runs/{id}`; a callback URL is optional. We chose polling because it works for every client (including those behind NAT), is idempotent, and survives client crashes. **Validation (D1):** one shared Pydantic contract covers schema, ranges, categories and cross-field rules (material shares sum to 100 ± 1, quantity ⇔ unit, declared code in chapters 73/96). Rejects are quarantined with field-level errors, and tests prove that **no run is created and no job is enqueued**.
 
 **Observability (D5, A6, F8):**
+
 - JSON logs with `run_id` and `correlation_id` on every line.
 - OpenTelemetry traces in Jaeger, one trace across the API, the worker and retriever calls.
 - Prometheus scrapes every service, with workers discovered through Docker DNS so every replica is scraped.
@@ -109,6 +112,7 @@ Ten services start with one `docker compose up` from a clean clone (CI checks th
 ## 5. Evaluation (L1–L3, L6)
 
 **Set and method:**
+
 - 28 scenarios (`eval/scenarios.jsonl`): the §4.1 flask ×3, 10 plain Chapter 73/96 cases, 4 material-vs-named-article traps, 2 vague, 2 GRI 3, 2 out of scope, 2 injection, 1 Schedule-2 row, 2 malformed. Each has its expected route, heading, code and supporting clause IDs from the corpus.
 - `eval/run_eval.py` runs the set through the public API and scores each trace.
 - Metric definitions are in `eval/METRICS.md`:
@@ -207,4 +211,4 @@ Setup: one MacBook (10 cores, 16 GB), 3-minute steps, queue drained between step
 - **Three cases escalated on the real model instead of being answered:** two material-vs-named-article traps (steel buttons, a steel-bodied pen) and a toothbrush whose quote kept failing the checker.
 - **Not done:** signed or allow-listed callbacks (SSRF risk on a public deployment); reporting every cross-field error alongside the field errors at once; a stronger, separate judge model.
 
-Runbook: `docs/runbook.md` (LLM provider down / rate-limited; retriever unhealthy or index missing). Incident log: `docs/incident_log.md` (9 real incidents).
+Runbook: `docs/runbook.md` (LLM provider down / rate-limited; retriever unhealthy or index missing). Incident log: `docs/incident_log.md` (11 real incidents).
