@@ -8,7 +8,7 @@
 | Member 2 (satwik-0110) | Corpus, retrieval and evaluation |
 | Member 3 (Sanshray10) | Agents and LLM |
 
-Repository: `export-classification-check` (the README has run instructions). Status as of 2026-11-15.
+Repository: `export-classification-check` (the README has run instructions). Status as of 2026-11-16.
 
 > All results below are measured. Real-model results are from Groq's free tier (2026-11-15/16), which allows 8k tokens/minute and 200k tokens/day per model. That limited how many real runs we could make, and §5 says how.
 
@@ -44,6 +44,20 @@ We built a **multi-agent service** that takes a product description, validates i
 5. On failure, the classifier retries with a **different strategy** (keyword by function, then dense across both chapters), carrying the passages already found, up to 2 retries. After that, **escalation**.
 
 **Loop bounds:** `AGENT_MAX_STEPS=20`, `AGENT_MAX_TOOL_CALLS=16`, `CLASSIFIER_MAX_TURNS=10`, `AGENT_MAX_WALL_S=420` (raised from 240 after the Groq evaluation, see §5). Hitting any of them escalates, never answers.
+
+**If an agent fails mid-run (A2):** every node runs inside a wrapper that turns any error into a controlled stop. Every step is written to `run_steps` as soon as it finishes, so **all steps before the failure are kept**, and `GET /runs/{id}/trace` shows them. Nothing that stops early can return a confident answer:
+
+| Failure | Final status | Route |
+|---|---|---|
+| Prompt injection detected (guard) | escalated | specialist, no model called |
+| AI provider down / breaker open (any agent) | degraded | specialist, no code, candidate headings listed |
+| Loop bound hit (steps, tool calls, time) | escalated | specialist |
+| Verification fails 3 times | escalated | specialist, no unverified citations |
+| Unexpected error inside an agent | failed | specialist |
+| Worker process killed | failed (set by the API watchdog) | none |
+| Retriever down | usually escalated (nothing verifiable) | specialist |
+
+All cases are tested (`docs/agent_design.md` §4).
 
 **Reliability (A5):** every LLM call has a timeout and bounded retry with exponential backoff and jitter. There is a **circuit breaker per provider, with its state in Redis** so every worker replica shares it. The fallback path is primary model → fallback model → **degraded retrieval-only result** (candidate headings, no code, specialist route). HTTP 429 is treated as a rate limit, not an outage: the client waits for the provider's `Retry-After` (incident 9). A chaos switch (`redis-cli SET ecs:chaos:llm_fail all`) demonstrates the breaker. **The A.5 invariant**, `clear-for-filing` only when verified and completed, is enforced in the contract model, the router and the result builder.
 
