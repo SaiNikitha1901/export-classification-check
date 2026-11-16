@@ -36,7 +36,7 @@ In the web client, click **Load demo case (§4.1)** → **Submit**.
 Create a free key on Groq's console, then create a file called `.env` next to `docker-compose.yml` with the six `LLM_*` lines from **decision D2 in [`docs/decisions.md`](docs/decisions.md)** (base URL, key, model, and the same three for the fallback), with your key filled in.
 Then `docker compose up -d`. `.env` is git-ignored, so never commit keys. Any other OpenAI-compatible endpoint works the same way.
 
-**Free-tier expectations:** Groq allows 8,000 tokens/minute and 200,000 tokens/day per model. A run uses about 10–25k tokens, so a real run takes **2–4 minutes**: the client waits for the provider's Retry-After instead of failing. Each model handles about 8–15 runs a day. When both models' daily quota is spent, runs come back `degraded` (an honest "model unavailable" result, never a guess).
+**Free-tier expectations:** Groq allows 8,000 tokens/minute and 200,000 tokens/day per model. A run uses about 10–25k tokens, so a real run takes **2–6 minutes**: the client waits for the provider's Retry-After instead of failing. Each model handles about 8–15 runs a day. When both models' daily quota is spent, runs come back `degraded` (an honest "model unavailable" result, never a guess).
 
 ### From the command line
 ```bash
@@ -98,7 +98,7 @@ Results go to `eval/results/<timestamp>_<label>/`. How each metric is computed: 
 | `api` shows `"status":"degraded"` in `/health` | The retriever is not ready (it may still be building its index). See the runbook |
 | Runs stay `queued` | No worker running: `docker compose ps agent-worker`, then `docker compose logs agent-worker` |
 | Runs come back `degraded` | The LLM provider is failing or its daily quota is spent (Groq: 200k tokens/day/model). See the runbook |
-| Runs take 2–4 minutes | Normal on a free tier: the client waits out the per-minute token limit |
+| Runs take 2–6 minutes | Normal on a free tier: the client waits out the per-minute token limit |
 
 More: [`docs/runbook.md`](docs/runbook.md) · [`docs/incident_log.md`](docs/incident_log.md)
 

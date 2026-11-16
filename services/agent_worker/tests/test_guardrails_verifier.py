@@ -146,3 +146,17 @@ def test_exclusion_item_found_in_section_xv_note():
     assert item.startswith("(m) hand sieves") and item.endswith("(miscellaneous manufactured articles)")
     assert item in note
     assert _excluding_item(note, "84", "8418") == ""
+
+
+def test_canonical_quote_uses_corpus_characters():
+    from agent_worker.agents.verifier import canonical_quote, quote_in_passage
+    p = {"title": "General Rule for Interpretation 1",
+         "text": "1. The titles of Sections, Chapters and sub-chapters are provided for ease of reference only; "
+                 "for legal purposes, classification shall be determined according to the terms of the headings"}
+    typed = "The titles of Sections, Chapters and sub\u2011chapters are provided for ease of reference only"  # S22, 2026-11-16
+    assert quote_in_passage(typed, p)
+    fixed = canonical_quote(typed, p)
+    assert fixed in p["text"] and "\u2011" not in fixed
+    stitched = canonical_quote("titles of Sections ... the terms of the  headings", p)
+    assert all(part in p["text"] for part in stitched.split(" … "))
+    assert canonical_quote("words that are not there at all", p) == "words that are not there at all"

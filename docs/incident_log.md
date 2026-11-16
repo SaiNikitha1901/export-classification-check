@@ -71,3 +71,10 @@ Real failures from development only. Add an entry when something actually breaks
 - **Found:** `/admin/stats` showed the queue still holding runs from the 10-user step when the 20-user step started, so the new runs queued behind them and none finished inside the 3-minute window. Runs still in progress when a step ended were simply not counted, which flatters p95 (only the fast runs were measured).
 - **Root cause:** a test-method bug. The steps weren't independent, and unfinished runs were treated as "not measured" instead of "missed the SLO".
 - **Fix:** `loadtest/sweep.sh` waits for an empty queue and no running runs before each step, and uses Locust `--stop-timeout` so in-flight runs finish. `summarize.py` counts runs that were submitted but never finished as SLO failures. The sweep was re-run from scratch.
+
+### 11. 4 of 14 Groq evaluation runs degraded: the time budget was shorter than the free tier's waits (2026-11-16)
+- **Seen:** in the Groq evaluation subset, S04, S07, S18 and S21 came back `degraded` ("language model unavailable") after 209–231 s, although Groq was up.
+- **Found:** their traces end with `run wall-clock budget spent waiting for rate limit`. A run needs about 25k tokens, and Groq's free tier allows 8k per minute, so a run spends about 3 minutes just waiting, close to `AGENT_MAX_WALL_S=240`.
+- **Root cause:** a budget sized for a paid or fast provider. The client did the right thing (it waited for Retry-After, never guessed), but the budget ran out first.
+- **Fix:** `AGENT_MAX_WALL_S` 240 → 420 and `RUN_TIMEOUT_S` 300 → 480. The degraded result was honest, so nothing wrong was returned.
+- **Also from this run:** one quote was flagged by the strict hallucination metric only because the model typed a non-breaking hyphen. Returned quotes now use the corpus's exact characters (`canonical_quote`).
