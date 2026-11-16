@@ -42,6 +42,29 @@ def _norm(s: str) -> str:
     return re.sub(r"\s+", " ", (s or "").translate(_CHARMAP)).strip()
 
 
+def canonical_quote(quote: str, passage: dict) -> str:
+    """The quote rewritten with the corpus's own characters, so anyone checking finds an exact substring.
+    Models often type typographic dashes or spaces (e.g. 'sub\u2011chapters' for 'sub-chapters');
+    only characters that _norm() treats as equal are replaced. Fragments joined by '...' are kept."""
+    texts = [passage.get("text") or "", passage.get("title") or ""]
+
+    def exact(fragment: str) -> str | None:
+        words = _norm(fragment).split(" ")
+        pattern = r"\s+".join(re.escape(w) for w in words if w)
+        for t in texts:
+            m = re.search(pattern, t.translate(_CHARMAP)) if pattern else None
+            if m:
+                return t[m.start():m.end()]
+        return None
+
+    whole = exact(quote)
+    if whole:
+        return whole
+    parts = [x for x in _ELLIPSIS.split(_norm(quote)) if x]
+    found = [exact(x) for x in parts]
+    return " … ".join(found) if len(parts) > 1 and all(found) else quote
+
+
 def quote_in_passage(quote: str, passage: dict) -> bool:
     """True if the quote is exact text from the passage (its text or its title). Models shorten long
     notes with '...': each fragment between ellipses must then appear exactly, in order, and the

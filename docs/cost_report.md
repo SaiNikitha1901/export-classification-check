@@ -60,4 +60,4 @@ Same SQL, notional prices `LLM_PRICE_IN_PER_1K=0.00059`, `LLM_PRICE_OUT_PER_1K=0
 - **Per-turn prompt tokens on the same flask case: about 5.6k before the cut, ≤ 2.6k after.**
 - One verified real run is about **$1.56 per 100 runs** at the notional prices, close to the 1.5–2× of the stub figure predicted above.
 - **On a free tier the binding limit is tokens per day, not money:** Groq allows 200,000 tokens/day per model, so 8–15 runs per model per day. That's why decision D2 pairs two models (separate quotas) and why the whole-run cache (D7) matters.
-- **[PENDING: Groq run 2026-11-16]** Cost per 100 runs over the Groq evaluation subset, using the SQL above.
+- **Groq evaluation subset, 2026-11-16 (12 runs that reached a model):** mean 25,466 prompt tokens per run, **$0.0177 per run, i.e. $1.77 per 100 runs**, mean 176 s per run (most of it waiting on the 8k tokens/minute limit). 14 runs used about 346k tokens, so the batch spent `gpt-oss-120b`'s 200k daily quota and spilled into the fallback model.

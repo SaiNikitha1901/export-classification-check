@@ -117,7 +117,10 @@ def run(ctx) -> Result:
 
 
 def _valid_citations(draft: Draft, ctx) -> list[Citation]:
-    return [c for c in draft.citations if not verifier.check_citations(Draft(citations=[c]), ctx.evidence)]
+    """Verified citations, with each quote in the corpus's exact characters (demo item 2: a quote must be
+    findable as-is in GET /clause/{id})."""
+    ok = [c for c in draft.citations if not verifier.check_citations(Draft(citations=[c]), ctx.evidence)]
+    return [c.model_copy(update={"quote": verifier.canonical_quote(c.quote, ctx.evidence[c.passage_id])}) for c in ok]
 
 
 def _degraded_citations(ctx) -> tuple[list[Citation], list[str]]:

@@ -10,7 +10,7 @@
 
 Repository: `export-classification-check` (the README has run instructions). Status as of 2026-11-15.
 
-> Items marked **[PENDING: Groq run]** are measured on the free Groq tier, which allows 200k tokens per model per day. They are filled in from the scheduled run on 2026-11-16. Everything else below is measured.
+> All results below are measured. Real-model results are from Groq's free tier (2026-11-15/16), which allows 8k tokens/minute and 200k tokens/day per model. That limited how many real runs we could make, and §5 says how.
 
 ---
 
@@ -43,7 +43,7 @@ We built a **multi-agent service** that takes a product description, validates i
 4. **The verifier** checks deterministically that every quote is exact text of a passage retrieved *in this run* (titles allowed, and exact fragments joined by "…"), that the heading and the deciding rule are cited, that the tariff line exists under that heading, and that the GRI order was followed. Then an LLM checks that the cited text supports each claim.
 5. On failure, the classifier retries with a **different strategy** (keyword by function, then dense across both chapters), carrying the passages already found, up to 2 retries. After that, **escalation**.
 
-**Loop bounds:** `AGENT_MAX_STEPS=20`, `AGENT_MAX_TOOL_CALLS=16`, `CLASSIFIER_MAX_TURNS=10`, `AGENT_MAX_WALL_S=240`. Hitting any of them escalates, never answers.
+**Loop bounds:** `AGENT_MAX_STEPS=20`, `AGENT_MAX_TOOL_CALLS=16`, `CLASSIFIER_MAX_TURNS=10`, `AGENT_MAX_WALL_S=420` (raised from 240 after the Groq evaluation, see §5). Hitting any of them escalates, never answers.
 
 **Reliability (A5):** every LLM call has a timeout and bounded retry with exponential backoff and jitter. There is a **circuit breaker per provider, with its state in Redis** so every worker replica shares it. The fallback path is primary model → fallback model → **degraded retrieval-only result** (candidate headings, no code, specialist route). HTTP 429 is treated as a rate limit, not an outage: the client waits for the provider's `Retry-After` (incident 9). A chaos switch (`redis-cli SET ecs:chaos:llm_fail all`) demonstrates the breaker. **The A.5 invariant**, `clear-for-filing` only when verified and completed, is enforced in the contract model, the router and the result builder.
 
@@ -126,7 +126,28 @@ Ten services start with one `docker compose up` from a clean clone (CI checks th
 | Laptop (out of scope) | escalated, no code | 187 s |
 | Injection | escalated, no model call | < 1 s |
 
-**[PENDING: Groq run 2026-11-16]** The Groq subset of the evaluation set (S01, S02, S04, S07, S10, S15, S16, S18, S21, S22, S24, S25, S27, S28): route accuracy, heading accuracy, and the four metrics, with the judge on a separate Groq model quota. A full 28-scenario Groq batch needs about 700k tokens, beyond one free key's daily quota.
+**Groq evaluation subset (2026-11-16, `eval/results/20261116T041806Z_groq-subset/`).** 14 scenarios covering every category. The agents ran on `gpt-oss-120b` (fallback `gpt-oss-20b`) and the judge on a separate model (`qwen3.8-27b`), so it did not use the agents' quota. The full 28 need about 700k tokens, more than one free key allows in a day.
+
+| Outcome | Scenarios |
+|---|---|
+| **Correct** (7) | **S01 §4.1 → 9617, capacity requested** (the reference answer) · **S02 500 ml → 96170011, clear-for-filing** · S22 laptop → escalated · S24, S25 injection → blocked, no model call · S27, S28 malformed → rejected (HTTP 422) |
+| **Degraded: time budget** (4) | S04, S07, S18, S21: the 240 s agent budget ran out **while waiting on Groq's 8k tokens/minute limit** (a run needs ~25k tokens). They returned the honest retrieval-only result. Budget raised to 420 s (incident 11). |
+| **Escalated by the checker or a loop limit** (3) | S10 (toothbrush): a quote failed the checker 3 times. S15, S16 (material-vs-named-article traps): no verified answer within 10 turns. A human decides: safe, but these are misses. |
+
+| Metric | Groq subset | qwen 7B (hybrid, 2026-11-12) |
+|---|---|---|
+| Groundedness | **0.651** (n = 7) | 0.157 (n = 5) |
+| Context relevance / recall | 0.228 / 0.672 | 0.196 / 0.735 |
+| Faithfulness | **1.000** | 0.973 |
+| Hallucination rate (strict) | 0.083: 1 run, **typography only** | 0 |
+| Route accuracy | **0.500** (n = 12) | 0.269 |
+| Heading accuracy | 0.286 (n = 7) | 0.158 |
+| clear-for-filing precision | **1.000** | 1.000 |
+| Injection detection / boundary accuracy | 1.000 / 1.000 | 1.000 / 1.000 |
+
+**About the one "hallucination":** in S22 the model quoted GRI 1 word for word but typed a non-breaking hyphen in "sub‑chapters". The strict metric compares characters exactly. We kept the metric strict and fixed the output instead: returned quotes now use the corpus's exact characters (`canonical_quote`, with a test built from this quote).
+
+**Reading these numbers:** the real model is much better than the 7B (route accuracy 0.27 → 0.50, groundedness 0.16 → 0.65), and every confident answer was right. The remaining misses are **free-tier time limits** (4) and **three cases the checker would not pass** (3). Neither gives a wrong answer; both hand the case to a human, which is the behaviour the spec asks for. The four time-budget cases are expected to complete with the raised budget; we didn't re-run them, because the day's quota was spent.
 
 **Live quality (L6):** the retriever's scorer samples about 10% of finished runs and writes `eval_scores` (`source=live`). Grafana charts quality over time. `POST /runs/{id}/feedback` stores satisfactory/not with a reason, and `/feedback/summary` aggregates it by prompt version.
 
@@ -157,7 +178,7 @@ Setup: one MacBook (10 cores, 16 GB), 3-minute steps, queue drained between step
 | Cost of a run-cache hit | $0 |
 | Cost per 100 runs, qwen 7B eval batch (v1 / v2) | $3.13 / $2.58 |
 | One real Groq run, §4.1 (21,013 in + 4,049 out) | $0.0156, i.e. **≈ $1.56 per 100 runs** |
-| Cost per 100 runs over the Groq evaluation subset | **[PENDING: Groq run]** |
+| Cost per 100 runs over the Groq evaluation subset (12 runs) | **$1.77** (25.5k prompt tokens per run) |
 
 **Largest single cost driver: the classifier's growing context**, 93% of the cost in M3's measurement. Every turn re-sends the conversation, so cost grows with the square of the turns. Our fix: a passage already shown in an attempt is re-sent only as a reference, and duplicate fields are dropped. Per-turn prompt tokens fell from about 5.6k to ≤ 2.6k on the same case. On a free tier, **tokens per day are the binding limit**: 200k per model is about 8–15 runs.
 
@@ -168,7 +189,8 @@ Setup: one MacBook (10 cores, 16 GB), 3-minute steps, queue drained between step
 - **The first Groq runs all degraded:** 429s tripped the breaker, and a strict verifier rejected a correct answer (incident 9). Both fixed and tested.
 - **Our own config bug:** an inline comment in `.env.example` became a setting's value and broke the retriever (incident 8). CI now checks for this.
 - **Run cache across models:** after switching from the stub to Groq, cached stub answers were served. The key now includes the model (PR #6).
-- **Free-tier quotas:** a full real-model evaluation can't run in one day on one key. We evaluate a subset and keep the 7B batch for the before/after and prompt comparisons.
+- **Free-tier quotas:** a full real-model evaluation can't run in one day on one key. We evaluated a 14-scenario subset and kept the 7B batch for the before/after and prompt comparisons. 4 of 14 Groq runs ran out of their 240 s time budget while waiting on the per-minute token limit (incident 11).
+- **Three cases escalated on the real model instead of being answered:** two material-vs-named-article traps (steel buttons, a steel-bodied pen) and a toothbrush whose quote kept failing the checker.
 - **Not done:** signed or allow-listed callbacks (SSRF risk on a public deployment); reporting every cross-field error alongside the field errors at once; a stronger, separate judge model.
 
 Runbook: `docs/runbook.md` (LLM provider down / rate-limited; retriever unhealthy or index missing). Incident log: `docs/incident_log.md` (9 real incidents).
